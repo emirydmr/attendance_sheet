@@ -15,7 +15,7 @@ from document import pdf_filename, print_pdf, validate_book, save_browser_docume
 from photo import PhotoDialog, create_root
 from branding import apply_icon
 from field_help import HELP, TIMETABLE_URL, description
-from browser_config import default_channel
+from browser_config import default_channel, BROWSER_NAMES, check_browser
 
 SEMESTERS = (
     ("11", "First semester", "第一学期"),
@@ -24,6 +24,10 @@ SEMESTERS = (
 )
 
 TEXT = {
+    "check_browser": ("Check browser / retry", "检查浏览器 / 重试"),
+    "browser_checking": ("Checking {name}…", "正在检查 {name}…"),
+    "browser_available": ("{name} is ready.", "{name} 已就绪。"),
+    "browser_unavailable": ("{name} is missing or cannot launch. Install/repair it or ask IT about automation restrictions, then click Check browser / retry. No automatic downloads.", "{name} 未安装或无法启动。请安装/修复浏览器，或向 IT 咨询自动化限制，然后点击“检查浏览器 / 重试”。不会自动下载。"),
     "field_info": ("Field information", "字段说明"),
     "portal_timetable": ("Open portal timetable", "打开门户课表"),
     "font_license": ("Font licence", "字体许可"),
@@ -89,7 +93,9 @@ def worker(commands, events, channel, demo):
                 if task == "quit":
                     break
                 try:
-                    if task == "open":
+                    if task == "check_browser":
+                        result = check_browser(pw, channel)
+                    elif task == "open":
                         if not demo:
                             session.open()
                         result = None
@@ -125,6 +131,8 @@ def worker(commands, events, channel, demo):
 class AttendanceApp:
     def __init__(self, root, channel=None, demo=False):
         self.root, self.demo = root, demo
+        self.channel = channel or default_channel()
+        self.browser_state = "checking"
         apply_icon(root)
         self.language = tk.StringVar(value="English")
         self.commands, self.events = queue.Queue(), queue.Queue()
@@ -148,10 +156,11 @@ class AttendanceApp:
             self.vars[key].trace_add("write", lambda *_args, k=key: self.invalidate(k))
         for key in ("chinese_name", "passport_name"):
             self.vars[key].trace_add("write", lambda *_: self.set_names_state())
-        self.thread = threading.Thread(target=worker, args=(self.commands, self.events, channel or default_channel(), demo), daemon=True)
+        self.thread = threading.Thread(target=worker, args=(self.commands, self.events, self.channel, demo), daemon=True)
         self.thread.start()
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.after(100, self.poll)
+        self.submit("check_browser")
 
     def tr(self, key):
         return TEXT[key][int(self.language.get() == "中文")]
@@ -163,8 +172,8 @@ class AttendanceApp:
 
     def build(self):
         self.root.title(self.tr("title"))
-        self.root.geometry("890x770")
-        self.root.minsize(820, 740)
+        self.root.geometry("890x810")
+        self.root.minsize(820, 790)
         style = ttk.Style(self.root)
         style.configure("Title.TLabel", font=("TkDefaultFont", 21, "bold"))
         style.configure("Success.TButton", foreground="#167342")
@@ -185,10 +194,12 @@ class AttendanceApp:
             self.widget(panel, ttk.Label, "demo", foreground="#926200").pack(anchor="w", pady=(8, 0))
         session = ttk.Frame(panel)
         session.pack(fill="x", pady=(18, 16))
-        for key in ("open", "end"):
+        for key in ("open", "end", "check_browser"):
             button = self.widget(session, ttk.Button, key, command=lambda k=key: self.submit(k))
             button.pack(side="left", padx=(0, 10))
             self.actions.append(button)
+        self.browser_status = ttk.Label(panel, wraplength=770)
+        self.browser_status.pack(anchor="w", pady=(0, 10))
         selections = ttk.Frame(panel)
         selections.pack(fill="x", pady=(0, 14))
         for col, key in enumerate(("year", "term", "first", "last")):
@@ -272,6 +283,9 @@ class AttendanceApp:
             self.status.configure(text=self.tr("ready"))
 
     def refresh(self):
+        self.browser_status.configure(
+            text=self.tr("browser_" + self.browser_state).format(name=BROWSER_NAMES[self.channel]),
+            foreground="#a52b28" if self.browser_state == "unavailable" else "#555")
         self.photo_status.configure(text=self.tr("photo_ready" if self.photo else "no_photo"))
         for key, state in self.states.items():
             style = {"success": "Success.TButton", "partial": "Partial.TButton", "failed": "Failed.TButton"}.get(state, "TButton")
@@ -332,6 +346,9 @@ class AttendanceApp:
             return
         if task in ("open", "end"):
             self.clear_student()
+        if task == "check_browser":
+            self.browser_state = "checking"
+            self.refresh()
         self.set_busy(True)
         if task in self.states:
             self.states[task] = "working"
@@ -512,7 +529,13 @@ class AttendanceApp:
                 if task in self.states:
                     self.states[task] = "failed"
                 self.status.configure(text=result)
+                if task == "check_browser":
+                    self.browser_state = "unavailable"
+                    self.status.configure(text=self.tr("browser_unavailable").format(name=BROWSER_NAMES[self.channel]))
             else:
+                if task == "check_browser":
+                    self.browser_state = "available"
+                    self.errors.pop(task, None)
                 if task in self.states:
                     self.results[task] = result
                     self.states[task] = "success"
@@ -529,7 +552,7 @@ class AttendanceApp:
                 elif task == "browser_print":
                     self.status.configure(text=f"{self.tr('browser_saved')} {result[0]}" + (" (Browser did not open automatically / 浏览器未自动打开)" if not result[1] else ""))
                 if task not in ("pdf", "browser_print"):
-                    self.status.configure(text=self.tr("signed" if task == "open" else "ready" if task == "end" else "completed"))
+                    self.status.configure(text=self.tr("signed" if task == "open" else "ready" if task in ("end", "check_browser") else "completed"))
             self.refresh()
         self.root.after(100, self.poll)
 

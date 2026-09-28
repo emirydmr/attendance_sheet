@@ -13,6 +13,12 @@ Browser policy: **installed Microsoft Edge on Windows, installed Google Chrome
 on macOS**, for both visible student login and headless PDF rendering. Playwright
 and its driver are packaged, but browsers are not. No browser download occurs
 at app startup; recipients must have the appropriate browser installed.
+Each startup runs a background, offline headless launch check (15-second launch
+timeout). A persistent bilingual status shows whether the required browser is
+usable. If missing or blocked, install/repair it or ask IT, then use **Check
+browser / retry**. The probe closes its separate browser and never opens the
+portal or changes the current student session. It verifies headless launch,
+not school login compatibility or whether policies allow a visible login window.
 
 ## 1. Current status and remaining work
 
@@ -31,7 +37,7 @@ Verified locally on 2026-09-28:
   Chrome 153; no missing assets or mismatched runtime dependency pins.
 - Platform recipes prepared. Mac shell syntax, launcher and no-download guards
   checked. Windows PowerShell is not available in this development environment.
-- Installed-browser policy revision: 43 unit tests and Tk integration passed;
+- Installed-browser/startup-check revision: 44 unit tests and Tk integration passed;
   Windows Edge dispatch is mock-tested, not yet tested on a Windows machine.
 
 Still required before release:

@@ -15,6 +15,33 @@ from photo import create_root
 root = create_root()
 root.withdraw()
 app = AttendanceApp(root, "chrome", True)
+
+
+def wait_done():
+    deadline = time.monotonic() + 20
+    while app.busy and time.monotonic() < deadline:
+        root.update()
+        time.sleep(.02)
+    assert not app.busy, "UI worker timed out"
+
+
+assert app.busy, 'Startup check must run asynchronously before other actions'
+wait_done()
+assert app.browser_state == 'available'
+with patch('main.check_browser', side_effect=ValueError('Simulated missing browser')):
+    app.submit('check_browser')
+    wait_done()
+assert app.browser_state == 'unavailable'
+assert 'No automatic downloads' in app.browser_status['text']
+app.language.set('中文')
+app.translate()
+assert '不会自动下载' in app.browser_status['text']
+app.language.set('English')
+app.translate()
+app.submit('check_browser')
+wait_done()
+assert app.browser_state == 'available'
+assert 'check_browser' not in app.errors
 assert root._attendance_icon.width() == 256
 assert root._attendance_icon.height() == 256
 assert len(app.help_controls) == 12
@@ -51,19 +78,14 @@ assert 'SIL OPEN FONT LICENSE' in licence_text.get('1.0', 'end')
 licence_window.destroy()
 
 
-def wait_done():
-    deadline = time.monotonic() + 10
-    while app.busy and time.monotonic() < deadline:
-        root.update()
-        time.sleep(.02)
-    assert not app.busy, "UI worker timed out"
-
-
 for key in ("identity", "names", "weeks"):
     app.retrieve(key)
     wait_done()
     assert app.states[key] == "success", (key, app.errors)
 assert app.payload()["student_id"] == "DEMO001"
+app.submit('check_browser')
+wait_done()
+assert app.payload()['student_id'] == 'DEMO001', 'Checking browser must preserve student data'
 app.language.set("中文")
 app.translate()
 assert app.badges["identity"]["text"] == "成功 · 点击查看"
