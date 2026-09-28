@@ -1,0 +1,13 @@
+Noto Serif SC Regular
+Copyright: © 2017-2024 Adobe (http://www.adobe.com/).
+Licence: SIL Open Font License 1.1; see LICENSE.txt.
+
+Original filename: NotoSerifSC-Regular.otf
+Local filename: AttendanceCJK.otf (file renamed only; font bytes unmodified).
+Source: https://github.com/notofonts/noto-cjk/blob/main/Serif/SubsetOTF/SC/NotoSerifSC-Regular.otf
+Licence source: https://github.com/notofonts/noto-cjk/blob/main/Serif/LICENSE
+Retrieved: 2026-09-28
+Size: 11625800 bytes
+Verified upstream Git blob SHA-1: be55fbdf3fe53bfc99779389f3f0b875707bf496
+
+The font retains its original internal name and copyright/licence metadata.

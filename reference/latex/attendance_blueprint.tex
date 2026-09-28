@@ -1,0 +1,98 @@
+% Standalone editable blueprint. Compile with XeLaTeX; no student data included.
+% Runtime PDF printing currently uses the matching HTML layout in document.py.
+\documentclass[UTF8,fontset=fandol,12pt]{ctexart}
+\usepackage[a4paper,landscape,margin=15mm]{geometry}
+\usepackage{array,tabularx,tikz}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\newcommand{\ChineseName}{\underline{\hspace{38mm}}}
+\newcommand{\PassportName}{\underline{\hspace{65mm}}}
+\newcommand{\Major}{\underline{\hspace{55mm}}}
+\newcommand{\StudentId}{\underline{\hspace{42mm}}}
+\newcommand{\HeadTeacher}{李冠楠}
+\newcommand{\TeacherPhone}{02968578129}
+\newcommand{\IssueYear}{2026}
+\newcommand{\IssueMonth}{9}
+\newcommand{\WeekCount}{16}
+% Populate a weekly grid with \Course{day 1..7}{first period}{span}{text}.
+\newcommand{\Course}[4]{%
+  \pgfmathsetmacro{\cx}{1.15+(#1-.5)*3.3}%
+  \pgfmathsetmacro{\cy}{-(#2-1+#3/2)*.82}%
+  \fill[white] (1.15+(#1-1)*3.3,-(#2-1)*.82) rectangle
+                  (1.15+#1*3.3,-(#2-1+#3)*.82);
+  \draw (1.15+(#1-1)*3.3,-(#2-1)*.82) rectangle
+        (1.15+#1*3.3,-(#2-1+#3)*.82);
+  \node[align=center,text width=3cm,font=\scriptsize] at (\cx,\cy) {#4};}
+\newcommand{\WeekGrid}[1]{%
+  \begin{tikzpicture}[x=1cm,y=1cm]
+    \draw (0,.8) rectangle (24.25,-9.84);
+    \draw (0,0)--(24.25,0);
+    \draw (1.15,.8)--(1.15,-9.84);
+    \foreach \d in {1,...,6}{\draw (1.15+\d*3.3,.8)--(1.15+\d*3.3,-9.84);}
+    \foreach \p in {1,...,11}{\draw (0,-\p*.82)--(24.25,-\p*.82);}
+    \node at (.575,.4) {节次};
+    \foreach \d/\name in {1/星期一,2/星期二,3/星期三,4/星期四,5/星期五,6/星期六,7/星期日}
+      {\node at (1.15+(\d-.5)*3.3,.4) {\name};}
+    \foreach \p in {1,...,12}{\node at (.575,-(\p-.5)*.82) {\p};}
+    #1
+  \end{tikzpicture}}
+\newcommand{\AttendanceWeek}[2]{%
+  \clearpage
+  \begin{center}\Large\bfseries 长安大学国际学生考勤册（第#1周）\end{center}
+  \WeekGrid{#2}\par\vspace{3mm}
+  考勤签字栏（由代课老师亲自如实填写）：\par\vspace{2mm}
+  \begin{tabularx}{\linewidth}{|*{7}{>{\centering\arraybackslash}X|}}\hline
+  星期一&星期二&星期三&星期四&星期五&星期六&星期日\\\hline
+  \rule{0pt}{9mm}&&&&&&\\\hline\end{tabularx}}
+\begin{document}
+\begin{center}
+\vspace*{12mm}
+{\Huge\bfseries 长安大学国际学生考勤册}\par\vspace{5mm}
+{\Large International Student Attendance Book}\par\vspace{20mm}
+\begin{tabularx}{.86\linewidth}{|l|X|l|X|}\hline
+中文名：&\ChineseName&护照名：&\PassportName\\[7mm]\hline
+专业：&\Major&学号：&\StudentId\\[7mm]\hline
+班主任：&\HeadTeacher&联系电话：&\TeacherPhone\\[7mm]\hline
+\end{tabularx}\par\vspace{20mm}
+{\Large \IssueYear 年\IssueMonth 月制}
+\end{center}
+\clearpage
+\begin{center}\Large\bfseries 长安大学国际学生考勤册使用说明\end{center}
+\begin{enumerate}
+\item 考勤签字栏由代课老师亲自如实填写；
+\item 若学生请假必须向代课老师出示国际教育学院办公室开出的请假条，并粘贴至指定位置；
+\item 每月1日和15日汇总考勤册（如遇假期顺延），学生将考勤册交至班主任处，由班主任汇总；
+\item 一年内，未经请假旷课达到18学时以上的，给予警告处分；达到30学时以上的，给予严重警告处分；达到54学时以上，给予留校察看处分；连续旷课两周的，按照学校学籍管理的有关规定处理；
+\item 该考勤册需保存至学期末，期末交由班主任归档，作为该生来华学习的重要学习资料。如学期中间有损毁或遗失，请及时联系班主任补办；
+\item 代课老师若有任何关于学生学习的事情均可联系其班主任。
+\end{enumerate}
+\clearpage
+\begin{center}\Large\bfseries International Student Attendance Book Instructions\end{center}
+\begin{enumerate}
+\item The attendance signature needs to be filled in by the substitute teacher themself;
+\item If students take leave, they must present the slip issued by international education, to the respective teachers;
+\item Every month on the 1st and 15th, students have to submit the attendance books to the head teacher's office, who will then summarize them;
+\item Warning will be given to the students who are absent for more than 18 class hours in a year; serious warning will be given to those who are absent for more than 30 class hours; academic probation will be given to those who are absent for more than 54 class hours;
+\item The attendance book should be kept until the end of the semester and filed by the head teacher, as an important learning material for the student. If the attendance book is damaged or lost during the semester, please contact the head teacher for a replacement;
+\item Lecturers can contact the head teacher whenever there is anything regarding the student's performance and studies.
+\end{enumerate}
+% Each iteration is replaced with retrieved Course calls in a populated source.
+\foreach \week in {1,...,16}{\AttendanceWeek{\week}{}}
+\clearpage
+\begin{center}\Large\bfseries 长安大学国际学生考勤汇总表（由班主任填写）\end{center}
+\begin{tabularx}{\linewidth}{|c|*{5}{>{\centering\arraybackslash}X|}}\hline
+周次&缺课（课时）&请假（课时）&统计时间&班主任签字&备注\\\hline
+1&&&&&\\[3mm]\hline 2&&&&&\\[3mm]\hline
+3&&&&&\\[3mm]\hline 4&&&&&\\[3mm]\hline
+5&&&&&\\[3mm]\hline 6&&&&&\\[3mm]\hline
+7&&&&&\\[3mm]\hline 8&&&&&\\[3mm]\hline
+9&&&&&\\[3mm]\hline 10&&&&&\\[3mm]\hline
+11&&&&&\\[3mm]\hline 12&&&&&\\[3mm]\hline
+13&&&&&\\[3mm]\hline 14&&&&&\\[3mm]\hline
+15&&&&&\\[3mm]\hline 16&&&&&\\[3mm]\hline
+总计&&&&&\\[3mm]\hline
+\end{tabularx}
+\clearpage
+\begin{center}\Large 请假条粘贴处\end{center}
+\vspace{5mm}\fbox{\rule{0pt}{130mm}\hspace{.96\linewidth}}
+\end{document}

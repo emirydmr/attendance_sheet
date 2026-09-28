@@ -1,0 +1,19 @@
+# Normalize text for cross-platform development and packaging.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.svg text eol=lf
+*.tex text eol=lf
+*.command text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Required bundled assets must not receive newline conversion.
+*.otf binary
+*.png binary
+*.ico binary

@@ -1,0 +1,25 @@
+<!doctype html><html lang='zh-CN'><meta charset='utf-8'><style>
+      @page{size:A4 landscape;margin:0;}*{box-sizing:border-box;}
+      body{margin:0;color:#000;font-family:'Attendance CJK','Songti SC','SimSun','Noto Serif CJK SC',serif;font-size:12pt;}
+      .page{position:relative;width:297mm;height:210mm;padding:15mm;margin:0 auto;break-after:page;overflow:visible;}
+      .page-content{width:267mm;display:flow-root;}
+      .page:last-child{break-after:auto;}h1,h2{text-align:center;margin:0 0 5mm;}
+      h1{font-size:26pt;}h2{font-size:18pt;}table{border-collapse:collapse;width:100%;table-layout:fixed;}
+      td,th{border:.25mm solid #222;padding:1.5mm;text-align:center;font-weight:normal;}
+      .cover .page-content{padding-top:8mm;}.cover h2{font-size:18pt;margin-top:3mm;}
+      .portrait{width:35mm;height:45mm;margin:6mm auto;display:flex;align-items:center;justify-content:center;}
+      .portrait img{width:100%;height:100%;object-fit:contain;}.placeholder{border:.25mm dashed #aaa;color:#888;font-size:10pt;}
+      .identity{width:90%;margin:7mm auto 0;}.identity th{width:16%;}.identity td{width:34%;height:16mm;}
+      .issue{text-align:center;margin-top:10mm;font-size:18pt;}
+      .instructions li{margin:0 0 5mm;line-height:1.55;font-size:13pt;}
+      .schedule th{height:9mm;}.schedule .period{width:11mm;font-size:10pt;white-space:nowrap;}
+      .schedule tr:not(:first-child){height:9.5mm;}.schedule td{padding:1mm;font-size:9pt;line-height:1.25;vertical-align:middle;}
+      .course{overflow-wrap:anywhere;white-space:pre-wrap;}
+      .summary th{height:9mm;}.summary td{height:6.7mm;padding:1mm;}
+      .leave{border:.25mm solid #222;height:145mm;margin-top:10mm;}
+      h1,h2,td,li{overflow-wrap:anywhere;}
+      .print-toolbar{padding:12px 10%;display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-family:sans-serif;background:#f2f4f6;}
+      .layout-warning{color:#a02020;}
+      @media screen{body{background:#ddd;}.page{background:white;margin:24px auto;zoom:var(--preview-scale,1);box-shadow:0 2px 12px #0002;}.page.layout-overflow{height:auto;min-height:210mm;}.page.layout-overflow .page-content{zoom:1!important;margin-left:0!important;}}
+      @media print{.print-toolbar{display:none;}.page{zoom:1;box-shadow:none;}}
+      ${font_css}${watermark}</style><body>${pages}<script nonce='attendanceprint'>${layout_script}</script></body></html>
