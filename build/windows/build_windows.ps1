@@ -1,5 +1,6 @@
 param([switch]$CheckOnly, [switch]$ConsoleBuild)
 $ErrorActionPreference = 'Stop'
+try {
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows executable on Windows.' }
 $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $projectRoot
@@ -43,3 +44,18 @@ $artifact = Join-Path $PSScriptRoot "dist\$appName.exe"
 & $python build/check_environment.py --require-build --browser msedge --artifact $artifact --report (Join-Path $PSScriptRoot "$appName-build-report.json")
 if ($LASTEXITCODE) { throw 'Post-build environment/artifact check failed' }
 Write-Host "Draft created: build\windows\dist\$appName.exe. Clean-Windows login, clipboard, drop and offline PDF testing remain required."
+
+} catch {
+    Write-Host ""
+    Write-Host "BUILD FAILED" -ForegroundColor Red
+    Write-Host ($_ | Out-String) -ForegroundColor Red
+
+    # Keep an interactive PowerShell window open so the error can be read.
+    # Do not block redirected/non-interactive builds.
+    try {
+        if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+            [void](Read-Host "Press Enter to close")
+        }
+    } catch { }
+    exit 1
+}
