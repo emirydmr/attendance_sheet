@@ -33,9 +33,14 @@ assert app.browser_version in app.browser_status['text']
 assert 'check passed' in app.browser_status['text']
 assert str(app.browser_status['foreground']) == '#167342'
 assert 'Browser check passed' in app.status['text']
-with patch('main.check_browser', side_effect=ValueError('Simulated missing browser')):
+with patch('main.check_browser', side_effect=ValueError('Simulated missing browser')),      patch.object(app, 'locate_browser') as picker:
     app.submit('check_browser')
     wait_done()
+    root.update_idletasks()
+    picker.assert_called_once_with()
+with patch('main.filedialog.askopenfilename', return_value=''):
+    app.locate_browser()
+    assert not app.busy
 assert app.browser_state == 'unavailable'
 assert app.browser_version == ''
 assert str(app.browser_status['foreground']) == '#a52b28'

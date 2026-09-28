@@ -33,7 +33,7 @@ if ($PrepareOnly) {
 if (-not (Test-Path $python)) {
     throw 'Prepare the Windows environment first: .\build\windows\build_windows.ps1 -PrepareOnly -DownloadsReady'
 }
-& $python build/check_environment.py --require-build --browser msedge
+& $python build/check_environment.py --require-build --browser msedge --prompt-browser
 if ($LASTEXITCODE) {
     Write-Host 'Check installed Microsoft Edge and school/browser automation policies. No browser is bundled.'
     throw 'Preflight failed. Address the reported errors, then rerun. No downloads started.'

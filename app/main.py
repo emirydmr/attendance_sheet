@@ -15,7 +15,7 @@ from document import pdf_filename, print_pdf, validate_book, save_browser_docume
 from photo import PhotoDialog, create_root
 from branding import apply_icon
 from field_help import HELP, TIMETABLE_URL, description
-from browser_config import default_channel, BROWSER_NAMES, check_browser
+from browser_config import default_channel, BROWSER_NAMES, check_browser, save_browser_executable
 
 SEMESTERS = (
     ("11", "First semester", "第一学期"),
@@ -25,10 +25,11 @@ SEMESTERS = (
 
 TEXT = {
     "check_browser": ("Check browser / retry", "检查浏览器 / 重试"),
+    "locate_browser": ("Locate browser…", "选择浏览器…"),
     "browser_checking": ("Checking {name}…", "正在检查 {name}…"),
     "browser_available": ("✓ {name} check passed (version {version}).", "✓ {name} 检查成功（版本 {version}）。"),
     "browser_check_passed": ("Browser check passed. You can open the login browser.", "浏览器检查成功，可以打开登录页面。"),
-    "browser_unavailable": ("{name} is missing or cannot launch. Install/repair it or ask IT about automation restrictions, then click Check browser / retry. No automatic downloads.", "{name} 未安装或无法启动。请安装/修复浏览器，或向 IT 咨询自动化限制，然后点击“检查浏览器 / 重试”。不会自动下载。"),
+    "browser_unavailable": ("{name} cannot launch. Use Locate browser to select its executable, or check installation and automation policies. No automatic downloads.", "{name} 无法启动。请点击“选择浏览器”指定可执行文件，或检查浏览器安装及自动化策略。不会自动下载。"),
     "field_info": ("Field information", "字段说明"),
     "portal_timetable": ("Open portal timetable", "打开门户课表"),
     "font_license": ("Font licence", "字体许可"),
@@ -97,6 +98,14 @@ def worker(commands, events, channel, demo):
                 try:
                     if task == "check_browser":
                         result = check_browser(pw, channel)
+                    elif task == "select_browser":
+                        executable_path = args[0]
+                        result = check_browser(pw, channel, executable_path=executable_path)
+                        try:
+                            save_browser_executable(channel, executable_path)
+                        except OSError as exc:
+                            raise ValueError("Browser validated, but its selection could not be saved.") from exc
+                        session.close()
                     elif task == "open":
                         if not demo:
                             session.open()
@@ -136,6 +145,8 @@ class AttendanceApp:
         self.channel = channel or default_channel()
         self.browser_state = "checking"
         self.browser_version = ""
+        self.browser_prompted = False
+        self.browser_previous_state = "checking"
         apply_icon(root)
         self.language = tk.StringVar(value="English")
         self.omit_empty_weeks = tk.BooleanVar(value=True)
@@ -196,8 +207,9 @@ class AttendanceApp:
             self.widget(panel, ttk.Label, "demo", foreground="#926200").pack(anchor="w", pady=(8, 0))
         session = ttk.Frame(panel)
         session.pack(fill="x", pady=(18, 16))
-        for key in ("open", "end", "check_browser"):
-            button = self.widget(session, ttk.Button, key, command=lambda k=key: self.submit(k))
+        for key in ("open", "end", "check_browser", "locate_browser"):
+            command = self.locate_browser if key == "locate_browser" else lambda k=key: self.submit(k)
+            button = self.widget(session, ttk.Button, key, command=command)
             button.pack(side="left", padx=(0, 10))
             self.actions.append(button)
         self.browser_status = ttk.Label(panel, wraplength=770)
@@ -352,12 +364,25 @@ class AttendanceApp:
         self.states = dict.fromkeys(self.states, "missing")
         self.refresh()
 
+    def locate_browser(self):
+        """Open the native picker on the Tk main thread, not in the Playwright worker."""
+        if self.busy or self.closing:
+            return
+        executable_path = filedialog.askopenfilename(
+            parent=self.root,
+            title=self.tr("locate_browser"),
+            filetypes=[("Executable files", "*.exe"), ("All files", "*.*")],
+        )
+        if executable_path:
+            self.submit("select_browser", (executable_path,))
+
     def submit(self, task, args=()):
         if self.busy:
             return
         if task in ("open", "end"):
             self.clear_student()
-        if task == "check_browser":
+        if task in ("check_browser", "select_browser"):
+            self.browser_previous_state = self.browser_state
             self.browser_state = "checking"
             self.refresh()
         self.set_busy(True)
@@ -366,7 +391,7 @@ class AttendanceApp:
             self.results.pop(task, None)
             self.refresh()
         self.status.configure(text=self.tr("browser_checking").format(name=BROWSER_NAMES[self.channel])
-                              if task == "check_browser" else self.tr("working"))
+                              if task in ("check_browser", "select_browser") else self.tr("working"))
         self.commands.put((task, args))
 
     def retrieve(self, task):
@@ -546,11 +571,19 @@ class AttendanceApp:
                     self.browser_state = "unavailable"
                     self.browser_version = ""
                     self.status.configure(text=self.tr("browser_unavailable").format(name=BROWSER_NAMES[self.channel]))
+                    if not self.browser_prompted and not self.closing:
+                        self.browser_prompted = True
+                        self.root.after_idle(self.locate_browser)
+                elif task == "select_browser":
+                    # Failed selection does not replace a working configuration.
+                    self.browser_state = self.browser_previous_state
             else:
-                if task == "check_browser":
+                if task in ("check_browser", "select_browser"):
                     self.browser_state = "available"
                     self.browser_version = result["version"]
                     self.errors.pop(task, None)
+                    if task == "select_browser":
+                        self.clear_student()
                 if task in self.states:
                     self.results[task] = result
                     self.states[task] = "success"
@@ -567,7 +600,7 @@ class AttendanceApp:
                 elif task == "browser_print":
                     self.status.configure(text=f"{self.tr('browser_saved')} {result[0]}" + (" (Browser did not open automatically / 浏览器未自动打开)" if not result[1] else ""))
                 if task not in ("pdf", "browser_print"):
-                    self.status.configure(text=self.tr("browser_check_passed" if task == "check_browser" else
+                    self.status.configure(text=self.tr("browser_check_passed" if task in ("check_browser", "select_browser") else
                                                        "signed" if task == "open" else "ready" if task == "end" else "completed"))
             self.refresh()
         self.root.after(100, self.poll)

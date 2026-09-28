@@ -24,6 +24,24 @@ def digest(path):
     return value.hexdigest()
 
 
+def select_browser_executable(channel):
+    """Ask the Windows build user to locate an installed browser."""
+    import tkinter as tk
+    from tkinter import filedialog
+    from browser_config import BROWSER_NAMES
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        return filedialog.askopenfilename(
+            parent=root,
+            title=f"Locate {BROWSER_NAMES[channel]} executable",
+            filetypes=[("Executable files", "*.exe"), ("All files", "*.*")],
+        )
+    finally:
+        root.destroy()
+
+
 def audit(require_build=False):
     errors, versions = [], {}
     if sys.version_info[:2] != (3, 12):
@@ -63,13 +81,15 @@ def audit(require_build=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--require-build', action='store_true')
+    parser.add_argument('--prompt-browser', action='store_true',
+                        help='Offer an executable picker if browser launch fails')
     browsers = parser.add_mutually_exclusive_group()
     browsers.add_argument('--system-chrome', action='store_true', help='Use installed Chrome (legacy alias)')
     browsers.add_argument('--browser', choices=('msedge', 'chrome'), help='Default: installed Edge on Windows, Chrome on macOS')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--artifact', type=Path)
     args = parser.parse_args()
-    from browser_config import default_channel, BROWSER_NAMES, launch_browser
+    from browser_config import default_channel, BROWSER_NAMES, launch_browser, save_browser_executable
     channel = 'chrome' if args.system_chrome else args.browser or default_channel()
     errors, versions, hashes = audit(args.require_build)
     details = {'python': platform.python_version(), 'platform': platform.system(),
@@ -94,20 +114,38 @@ def main():
             from playwright.sync_api import sync_playwright
             from document import font_css
             with sync_playwright() as pw:
-                browser = launch_browser(pw, channel, headless=True)
+                selected_path = None
+                try:
+                    browser = launch_browser(pw, channel, headless=True)
+                except ValueError:
+                    if not args.prompt_browser:
+                        raise
+                    selected_path = select_browser_executable(channel)
+                    if not selected_path:
+                        raise ValueError("Browser selection canceled; no download started.")
+                    browser = launch_browser(pw, channel, headless=True, executable_path=selected_path)
+
+                font_loaded = False
                 try:
                     details['browser_version'] = browser.version
                     page = browser.new_page()
                     page.route('**/*', lambda route: route.abort())
                     page.set_content("<style>" + font_css() + "body{font-family:'Attendance CJK'}</style>长安大学国际学生考勤册")
                     page.evaluate('document.fonts.ready')
-                    if not page.evaluate("Array.from(document.fonts).length > 0 && Array.from(document.fonts).every(f => f.status === 'loaded')"):
+                    font_loaded = page.evaluate(
+                        "Array.from(document.fonts).length > 0 && "
+                        "Array.from(document.fonts).every(f => f.status === 'loaded')"
+                    )
+                    if not font_loaded:
                         errors.append('Bundled font failed to load in the browser.')
                 finally:
                     browser.close()
+
+                if selected_path and font_loaded:
+                    save_browser_executable(channel, selected_path)
+                    details['browser_executable'] = selected_path
         except Exception as exc:
-            errors.append(f'Headless browser / font check failed: {type(exc).__name__}. '
-                          f'Check installed {BROWSER_NAMES[channel]} and automation policies; no download started.')
+            errors.append(f'Headless browser / font check failed: {type(exc).__name__}: {exc}')
     if args.artifact:
         if not args.artifact.is_file():
             errors.append('Build artifact file is missing.')
