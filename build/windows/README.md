@@ -1,31 +1,41 @@
 # Windows build
 
 Build on Windows with Python 3.12 including Tk and the Python launcher (`py`).
-Copy the project source/assets, not the Mac `.venv` symlink, to Windows. Run these
-commands from the copied project's root in PowerShell.
+Copy the project source/assets, not a macOS virtual environment, to Windows.
+Run this from the project's root in PowerShell:
 
-1. Prepare dependencies yourself when your connection is ready. This downloads
-   Python packages including Playwright and PyInstaller, but no browsers:
+```powershell
+.\build\windows\build_windows.ps1
+```
 
-   ```powershell
-   .\build\windows\build_windows.ps1 -PrepareOnly -DownloadsReady
-   ```
+The script creates `build\windows\.venv` if necessary, installs the pinned Python
+dependencies, verifies the assets and browser, runs the tests, and packages the EXE.
+Existing environments are reused. Microsoft Edge is required but is not bundled;
+if the browser preflight cannot launch it, a file picker lets you select its
+executable. No separate preparation command is needed.
 
-2. Ensure Microsoft Edge is installed. It is required on both the build machine
-   and recipient machines for visible login and background PDF rendering.
-   Do not run `playwright install`; no browser runtime is bundled.
+Output: `build\windows\dist\AttendanceBook.exe`. Generated spec files,
+work files, build reports and the virtual environment remain under
+`build\windows\`.
 
-3. Build without dependency/browser downloads:
+Optional commands:
 
-   ```powershell
-   .\build\windows\build_windows.ps1
-   ```
+```powershell
+.\build\windows\build_windows.ps1 -CheckOnly
+.\build\windows\build_windows.ps1 -ConsoleBuild
+```
 
-Output: `build\windows\dist\AttendanceBook.exe`. Generated spec and work files,
-and the Windows virtual environment, also stay under `build\windows\`.
-Run the EXE on a clean Windows machine with Edge installed and test login, clipboard/drop, offline
-PDF creation, Chinese text, icon display and next-student session cleanup.
+`-CheckOnly` prepares the environment and runs the preflight without packaging;
+`-ConsoleBuild` produces `AttendanceBookDebug.exe` with console output.
 
-If PowerShell blocks a locally copied script, use the same arguments with
-`powershell -NoProfile -ExecutionPolicy Bypass -File .\build\windows\build_windows.ps1`.
-This affects that process only; do not change machine-wide execution policy.
+Test the EXE on a clean Windows machine with Edge installed, including login,
+clipboard/drop, offline PDF creation, Chinese text, icon display and
+next-student session cleanup.
+
+If PowerShell blocks the script, use a process-scoped override:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build\windows\build_windows.ps1
+```
+
+This does not change the machine-wide execution policy.

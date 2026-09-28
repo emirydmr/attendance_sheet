@@ -11,15 +11,17 @@ the student is present and can log in to the university portal.
 
 Packaged applications do not require Python or LaTeX. Browsers are not bundled.
 The application checks the required browser at startup and provides
-**Check browser / retry** if it cannot launch. A successful check shows a green
-checkmark, a confirmation message and the browser version. It never downloads a browser.
+**Check browser / retry** and **Locate browser…** if it cannot launch.
+A successful check shows a green checkmark, a confirmation message and the
+browser version. It never downloads a browser.
 
 ## Setup and launch
 
-Run all commands from the repository root. Dependency preparation downloads
-Python packages; the launch and build steps do not install anything.
-Dependencies are pinned in [requirements.txt](requirements.txt) and
+Run all commands from the repository root. Dependencies are pinned in
+[requirements.txt](requirements.txt) and
 [build/requirements-build.txt](build/requirements-build.txt).
+The Windows build script automatically sets up its environment and installs
+any required Python packages. macOS retains its separate preparation step.
 
 ### Windows
 
@@ -27,7 +29,7 @@ Install Python 3.12 with Tkinter and the Python launcher (`py`), then run in
 PowerShell:
 
 ```powershell
-.\build\windows\build_windows.ps1 -PrepareOnly -DownloadsReady
+.\build\windows\build_windows.ps1 -CheckOnly
 .\build\windows\.venv\Scripts\python.exe app/main.py
 ```
 
@@ -51,9 +53,9 @@ command. Add `--photo-popup` to open the photo importer immediately.
 
 ## Usage
 
-1. Wait for the startup browser check. If it fails, install or repair the required
-   browser, or resolve its automation restrictions, then click
-   **Check browser / retry**.
+1. Wait for the startup browser check. If it fails, use **Locate browser…**
+   to select the installed browser executable, or resolve any installation or
+   automation restrictions, then click **Check browser / retry**.
 2. Click **Open browser / log in** and let the student sign in.
 3. Select the academic start year, semester and inclusive week range.
 4. Retrieve student number/major, student name and weekly timetables separately.
@@ -134,8 +136,9 @@ Oversized pages are reported instead of silently clipping course text.
 
 ## Building
 
-Build on the target operating system after completing its setup step. Build
-recipes check dependencies, assets and browser availability before packaging.
+Build on the target operating system. The Windows script prepares its own
+environment automatically; macOS uses the setup step above. Build recipes check
+dependencies, assets and browser availability before packaging.
 Platform environments, generated specs, work directories, reports and packaged
 outputs stay under `build/windows/` or `build/macos/`.
 
@@ -193,9 +196,9 @@ Output: `build/source/AttendanceBook-source.zip`.
 
 ## Troubleshooting
 
-- **Browser check fails:** confirm Edge on Windows or Chrome on macOS is
-  installed and usable. Organization policies may restrict automation. After
-  resolving the problem, click **Check browser / retry**.
+- **Browser check fails:** use **Locate browser…** to select the Edge or Chrome
+  executable. Organization policies may restrict automation. After resolving
+  the problem, click **Check browser / retry**.
 - **Different browser for an explicit run:** use `--browser msedge` or
   `--browser chrome`; that browser must already be installed.
 - **Tkinter or drag-and-drop fails:** use Python 3.12 with Tkinter and the correct
