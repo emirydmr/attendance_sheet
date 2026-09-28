@@ -38,7 +38,14 @@ if ($LASTEXITCODE) { throw 'Unit tests failed' }
 if ($LASTEXITCODE) { throw 'Tk integration checks failed' }
 $appName = if ($ConsoleBuild) { 'AttendanceBookDebug' } else { 'AttendanceBook' }
 $windowMode = if ($ConsoleBuild) { '--console' } else { '--windowed' }
-& $python -m PyInstaller --noconfirm --clean --onefile $windowMode --noupx --additional-hooks-dir 'build/hooks' --collect-all tkinterdnd2 --add-data 'app/templates:templates' --add-data 'app/assets:assets' --icon 'app/assets/icons/chu_red.ico' --specpath $PSScriptRoot --workpath (Join-Path $PSScriptRoot 'work') --distpath (Join-Path $PSScriptRoot 'dist') --name $appName app/main.py
+# Data sources in generated specs are resolved relative to --specpath.
+# Use absolute source paths so keeping specs under build/windows is safe.
+$templatesSource = Join-Path $projectRoot 'app\templates'
+$assetsSource = Join-Path $projectRoot 'app\assets'
+$hooksSource = Join-Path $projectRoot 'build\hooks'
+$iconSource = Join-Path $projectRoot 'app\assets\icons\chu_red.ico'
+$mainScript = Join-Path $projectRoot 'app\main.py'
+& $python -m PyInstaller --noconfirm --clean --onefile $windowMode --noupx --additional-hooks-dir $hooksSource --collect-all tkinterdnd2 --add-data "${templatesSource}:templates" --add-data "${assetsSource}:assets" --icon $iconSource --specpath $PSScriptRoot --workpath (Join-Path $PSScriptRoot 'work') --distpath (Join-Path $PSScriptRoot 'dist') --name $appName $mainScript
 if ($LASTEXITCODE) { throw 'Executable build failed' }
 $artifact = Join-Path $PSScriptRoot "dist\$appName.exe"
 & $python build/check_environment.py --require-build --browser msedge --artifact $artifact --report (Join-Path $PSScriptRoot "$appName-build-report.json")
