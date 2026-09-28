@@ -110,6 +110,9 @@ def weekly_grid(week):
 
 def book_html(data):
     validate_book(data)
+    # Validate the complete scan before applying this output-only preference.
+    weeks = [week for week in data["weeks"]
+             if not data.get("omit_empty_weeks", False) or week["classes"]]
     e = lambda k: escape(str(data[k]))
     issued = date.fromisoformat(data["issue_date"])
     photo = data.get("photo")
@@ -125,12 +128,12 @@ def book_html(data):
                                 ("International Student Attendance Book Instructions", EN_INSTRUCTIONS)):
         pages.append(f"<section class='page instructions'><h2>{title}</h2><ol>" +
                      "".join(f"<li>{escape(x)}</li>" for x in instructions) + "</ol></section>")
-    for week in data["weeks"]:
+    for week in weeks:
         number = week["selection"]["week"]
         pages.append(f"<section class='page weekly'><h2>{TITLE}（第{number}周）</h2>" +
                      weekly_grid(week) + "</section>")
     headers = ["周次", "缺课（课时）", "请假（课时）", "统计时间", "班主任签字", "备注"]
-    rows = "".join(f"<tr><td>{w['selection']['week']}</td>" + "<td></td>" * 5 + "</tr>" for w in data["weeks"])
+    rows = "".join(f"<tr><td>{w['selection']['week']}</td>" + "<td></td>" * 5 + "</tr>" for w in weeks)
     pages.append("<section class='page'><h2>长安大学国际学生考勤汇总表（由班主任填写）</h2>" +
                  "<table class='summary'><tr>" + "".join(f"<th>{h}</th>" for h in headers) +
                  "</tr>" + rows + "<tr><td>总计</td>" + "<td></td>" * 5 + "</tr></table></section>")
@@ -147,7 +150,7 @@ def browser_html(data):
     html = book_html(data)
     policy = "default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src 'nonce-attendanceprint'; base-uri 'none'; form-action 'none'"
     html = html.replace("<meta charset='utf-8'>", "<meta charset='utf-8'><meta http-equiv='Content-Security-Policy' content=\"" + policy + "\">")
-    toolbar = "<div class='print-toolbar'><button id='print-book'>Print / Save as PDF · 打印 / 另存为PDF</button><span>This file contains student information and photo. / 本文件包含学生信息和照片。</span><span id='layout-warning' class='layout-warning'></span></div>"
+    toolbar = "<div class='print-toolbar'><button id='print-book'>Print / Save as PDF · 打印 / 另存为PDF</button><span id='layout-warning' class='layout-warning'></span></div>"
     html = html.replace("<body>", "<body>" + toolbar)
     return html
 

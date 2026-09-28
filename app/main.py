@@ -26,7 +26,8 @@ SEMESTERS = (
 TEXT = {
     "check_browser": ("Check browser / retry", "检查浏览器 / 重试"),
     "browser_checking": ("Checking {name}…", "正在检查 {name}…"),
-    "browser_available": ("{name} is ready.", "{name} 已就绪。"),
+    "browser_available": ("✓ {name} check passed (version {version}).", "✓ {name} 检查成功（版本 {version}）。"),
+    "browser_check_passed": ("Browser check passed. You can open the login browser.", "浏览器检查成功，可以打开登录页面。"),
     "browser_unavailable": ("{name} is missing or cannot launch. Install/repair it or ask IT about automation restrictions, then click Check browser / retry. No automatic downloads.", "{name} 未安装或无法启动。请安装/修复浏览器，或向 IT 咨询自动化限制，然后点击“检查浏览器 / 重试”。不会自动下载。"),
     "field_info": ("Field information", "字段说明"),
     "portal_timetable": ("Open portal timetable", "打开门户课表"),
@@ -37,6 +38,7 @@ TEXT = {
     "year": ("Academic start year", "学年起始年"),
     "term": ("Semester", "学期"),
     "first": ("First week", "起始周"), "last": ("Last week", "结束周"),
+    "omit_empty_weeks": ("Omit empty weeks", "省略无课周"),
     "identity": ("Student number & major", "学号与专业"),
     "names": ("Student name", "学生姓名"),
     "weeks": ("Weekly timetables", "每周课表"),
@@ -70,7 +72,7 @@ TEXT = {
     "photo_ready": ("Photo added", "已添加照片"),
     "browser_print": ("Open in default browser / print…", "在默认浏览器打开 / 打印…"),
     "photo_missing": ("No photo is attached. Export with an empty photo box?", "尚未添加照片。是否保留空白照片框并导出？"),
-    "browser_saved": ("HTML saved. Print / Save as PDF in your default browser. The HTML contains student data and photo.", "HTML已保存。请在默认浏览器中打印或另存为PDF。HTML包含学生信息和照片。"),
+    "browser_saved": ("HTML saved. Print / Save as PDF in your default browser.", "HTML已保存。请在默认浏览器中打印或另存为PDF。"),
 }
 
 
@@ -133,8 +135,10 @@ class AttendanceApp:
         self.root, self.demo = root, demo
         self.channel = channel or default_channel()
         self.browser_state = "checking"
+        self.browser_version = ""
         apply_icon(root)
         self.language = tk.StringVar(value="English")
+        self.omit_empty_weeks = tk.BooleanVar(value=True)
         self.commands, self.events = queue.Queue(), queue.Queue()
         self.busy = self.closing = False
         self.data, self.results, self.errors = {}, {}, {}
@@ -144,7 +148,7 @@ class AttendanceApp:
         self.translated, self.inputs, self.actions = [], [], []
         self.help_controls, self.field_entries = {}, {}
         self.vars = {key: tk.StringVar(value=value) for key, value in {
-            "year": str(date.today().year), "term": "11", "first": "1", "last": "16",
+            "year": str(date.today().year), "term": "11", "first": "1", "last": "18",
             "chinese_name": "示例学生" if demo else "",
             "passport_name": "SAMPLE STUDENT" if demo else "",
             "major": "", "teacher": "李冠楠", "phone": "02968578129",
@@ -187,8 +191,6 @@ class AttendanceApp:
         languages = ttk.Combobox(top, textvariable=self.language, values=("English", "中文"), state="readonly", width=12)
         languages.pack(side="right")
         languages.bind("<<ComboboxSelected>>", lambda _: self.translate())
-        self.bind_help(languages, "language")
-        self.info_button(top, "language").pack(side="right", padx=3)
         self.widget(top, ttk.Button, "font_license", command=self.show_font_license).pack(side="right", padx=10)
         if self.demo:
             self.widget(panel, ttk.Label, "demo", foreground="#926200").pack(anchor="w", pady=(8, 0))
@@ -221,6 +223,14 @@ class AttendanceApp:
             self.inputs.append(entry)
             self.field_entries[key] = entry
             self.bind_help(entry, key)
+        options = ttk.Frame(selections)
+        options.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        self.omit_empty_checkbox = self.widget(
+            options, ttk.Checkbutton, "omit_empty_weeks", variable=self.omit_empty_weeks)
+        self.omit_empty_checkbox.pack(side="left")
+        self.inputs.append(self.omit_empty_checkbox)
+        self.bind_help(self.omit_empty_checkbox, "omit_empty_weeks")
+        self.info_button(options, "omit_empty_weeks").pack(side="left", padx=4)
         self.badges = {}
         for key in ("identity", "names", "weeks"):
             row = ttk.Frame(panel)
@@ -284,8 +294,9 @@ class AttendanceApp:
 
     def refresh(self):
         self.browser_status.configure(
-            text=self.tr("browser_" + self.browser_state).format(name=BROWSER_NAMES[self.channel]),
-            foreground="#a52b28" if self.browser_state == "unavailable" else "#555")
+            text=self.tr("browser_" + self.browser_state).format(
+                name=BROWSER_NAMES[self.channel], version=self.browser_version),
+            foreground={"available": "#167342", "unavailable": "#a52b28"}.get(self.browser_state, "#555"))
         self.photo_status.configure(text=self.tr("photo_ready" if self.photo else "no_photo"))
         for key, state in self.states.items():
             style = {"success": "Success.TButton", "partial": "Partial.TButton", "failed": "Failed.TButton"}.get(state, "TButton")
@@ -354,7 +365,8 @@ class AttendanceApp:
             self.states[task] = "working"
             self.results.pop(task, None)
             self.refresh()
-        self.status.configure(text=self.tr("working"))
+        self.status.configure(text=self.tr("browser_checking").format(name=BROWSER_NAMES[self.channel])
+                              if task == "check_browser" else self.tr("working"))
         self.commands.put((task, args))
 
     def retrieve(self, task):
@@ -480,7 +492,8 @@ class AttendanceApp:
         return {**self.data, **{k: self.vars[k].get().strip() for k in
                 ("chinese_name", "passport_name", "major", "teacher", "phone", "issue_date")},
                 "year": year, "term": term, "first_week": first, "last_week": last,
-                "portal_major": self.data["major"], "weeks": self.results["weeks"], "demo": self.demo, "photo": self.photo}
+                "portal_major": self.data["major"], "weeks": self.results["weeks"], "demo": self.demo, "photo": self.photo,
+                "omit_empty_weeks": self.omit_empty_weeks.get()}
 
     def add_photo(self):
         if self.busy:
@@ -531,10 +544,12 @@ class AttendanceApp:
                 self.status.configure(text=result)
                 if task == "check_browser":
                     self.browser_state = "unavailable"
+                    self.browser_version = ""
                     self.status.configure(text=self.tr("browser_unavailable").format(name=BROWSER_NAMES[self.channel]))
             else:
                 if task == "check_browser":
                     self.browser_state = "available"
+                    self.browser_version = result["version"]
                     self.errors.pop(task, None)
                 if task in self.states:
                     self.results[task] = result
@@ -552,7 +567,8 @@ class AttendanceApp:
                 elif task == "browser_print":
                     self.status.configure(text=f"{self.tr('browser_saved')} {result[0]}" + (" (Browser did not open automatically / 浏览器未自动打开)" if not result[1] else ""))
                 if task not in ("pdf", "browser_print"):
-                    self.status.configure(text=self.tr("signed" if task == "open" else "ready" if task in ("end", "check_browser") else "completed"))
+                    self.status.configure(text=self.tr("browser_check_passed" if task == "check_browser" else
+                                                       "signed" if task == "open" else "ready" if task == "end" else "completed"))
             self.refresh()
         self.root.after(100, self.poll)
 

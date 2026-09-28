@@ -4,11 +4,11 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from document import book_html, browser_html, font_css, pdf_filename, resource_root, validate_book, weekly_grid
-from service import demo_identity, demo_weeks
+from service import PortalSession, demo_identity, demo_weeks
 from portal import profile_fields
 
 
@@ -64,6 +64,13 @@ class ProductionTests(unittest.TestCase):
             self.assertIn("考勤签字栏由代课老师亲自如实填写", html)
             self.assertIn("班主任签字", html)
 
+    def test_no_added_student_information_notice(self):
+        html = browser_html(fixture())
+        self.assertNotIn('This file contains student information and photo', html)
+        self.assertNotIn('本文件包含学生信息和照片', html)
+        self.assertIn("id='print-book'", html)
+        self.assertIn("id='layout-warning'", html)
+
     def test_never_infer_name(self):
         data = fixture()
         data["chinese_name"] = ""
@@ -101,6 +108,62 @@ class ProductionTests(unittest.TestCase):
 
     def test_empty_week_valid(self):
         self.assertIn("节次", weekly_grid(demo_weeks(2026, 11, 1, 1)[0]))
+
+    def test_omit_empty_weeks_preserves_numbers_and_source(self):
+        data = fixture()
+        data['omit_empty_weeks'] = True
+        # Empty weeks at the beginning, middle and end of the selected range.
+        data['weeks'][7]['classes'] = []
+        data['weeks'][-1]['classes'] = []
+        original = copy.deepcopy(data)
+        for html in (book_html(data), browser_html(data)):
+            self.assertEqual(html.count("class='page weekly'"), 13)
+            for number in (1, 8, 16):
+                self.assertNotIn(f'（第{number}周）', html)
+                self.assertNotIn(f'<tr><td>{number}</td>', html)
+            for number in (2, 7, 9, 15):
+                self.assertIn(f'（第{number}周）', html)
+                self.assertIn(f'<tr><td>{number}</td>', html)
+        self.assertEqual(data, original)
+        data['omit_empty_weeks'] = False
+        self.assertEqual(book_html(data).count("class='page weekly'"), 16)
+
+    def test_omit_does_not_allow_incomplete_scan(self):
+        data = fixture()
+        data['omit_empty_weeks'] = True
+        data['weeks'].pop(0)
+        with self.assertRaisesRegex(ValueError, 'incomplete'):
+            book_html(data)
+
+    def test_retrieval_scans_every_week_including_empty_weeks(self):
+        session = PortalSession(Mock(), 'chrome')
+        session.context = Mock()
+        session.student_id = 'DEMO001'
+        session.identity = Mock()
+        with patch('service.read_http', side_effect=demo_weeks(2026, 11, 1, 3)) as fetch, \
+                patch('service.time.sleep'):
+            weeks = session.timetables(2026, 11, 1, 3, Mock())
+        self.assertEqual([call.args[1].week for call in fetch.call_args_list], [1, 2, 3])
+        self.assertEqual(len(weeks), 3)
+        self.assertEqual(weeks[0]['classes'], [])
+
+    def test_omitted_weeks_still_require_identity_match(self):
+        data = fixture()
+        data['omit_empty_weeks'] = True
+        data['weeks'][0]['identity']['学号'] = 'another'
+        with self.assertRaisesRegex(ValueError, 'different student'):
+            book_html(data)
+
+    def test_all_empty_weeks_omit_only_weekly_pages(self):
+        data = fixture()
+        data['omit_empty_weeks'] = True
+        for week in data['weeks']:
+            week['classes'] = []
+        html = book_html(data)
+        self.assertEqual(html.count('<section '), 5)
+        self.assertNotIn("class='page weekly'", html)
+        self.assertIn('考勤汇总表', html)
+        self.assertIn('请假条粘贴处', html)
 
     def test_overlaps_rejected(self):
         week = demo_weeks(2026, 11, 3, 3)[0]
