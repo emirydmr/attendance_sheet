@@ -2,24 +2,81 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+import re
+import tempfile
 import time
 
+from playwright.sync_api import Error as PlaywrightError
+
 from portal import BASE, Selection, PortalError, read_http, profile_fields
-from browser_config import default_channel, launch_browser
+from browser_config import default_channel, launch_login_context
 
 
 class PortalSession:
     def __init__(self, playwright, channel=None):
         self.pw, self.channel = playwright, channel or default_channel()
         self.browser = self.context = self.page = None
+        self._profile = None
         self.student_id = None
+        self.network_issues = []
+        self.request_responses = []
+        self.pending_requests = {}
+
+    def _request_started(self, request):
+        if request.resource_type in ("document", "xhr", "fetch"):
+            host = urlparse(request.url).hostname or "unknown"
+            self.pending_requests[id(request)] = (host, request.resource_type, time.monotonic())
+
+    def _request_finished(self, request):
+        self.pending_requests.pop(id(request), None)
+
+    def _request_failed(self, request):
+        self.pending_requests.pop(id(request), None)
+        # Record only host and Chromium error code, never URL, headers or body.
+        failure = request.failure or ""
+        match = re.search(r"net::ERR_[A-Z0-9_]+", failure)
+        if match:
+            host = urlparse(request.url).hostname or "unknown"
+            self.network_issues.append(f"{host}: {match.group()}")
+            self.network_issues = self.network_issues[-8:]
+
+    def _response_received(self, response):
+        if response.request.resource_type in ("document", "xhr", "fetch"):
+            host = urlparse(response.url).hostname or "unknown"
+            self.request_responses.append(
+                f"{host} ({response.request.resource_type}): HTTP {response.status}")
+            self.request_responses = self.request_responses[-12:]
+        if response.status >= 400 and response.request.resource_type in ("document", "xhr", "fetch"):
+            host = urlparse(response.url).hostname or "unknown"
+            self.network_issues.append(f"{host}: HTTP {response.status}")
+            self.network_issues = self.network_issues[-8:]
 
     def open(self):
         self.close()
-        self.browser = launch_browser(self.pw, self.channel, headless=False)
-        self.context = self.browser.new_context()
-        self.page = self.context.new_page()
+        self._profile = tempfile.TemporaryDirectory(prefix="attendance-login-")
+        try:
+            self.context = launch_login_context(self.pw, self._profile.name, self.channel)
+        except Exception:
+            self.close()
+            raise
+        self.context.on("request", self._request_started)
+        self.context.on("requestfinished", self._request_finished)
+        self.context.on("requestfailed", self._request_failed)
+        self.context.on("response", self._response_received)
+        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.goto(BASE, wait_until="domcontentloaded", timeout=30000)
+
+    def diagnose_login(self):
+        """Report browser events without starting another network request."""
+        if not self.context or not self.page or self.page.is_closed():
+            raise PortalError("Open the login browser first / 请先打开登录页面。")
+        now = time.monotonic()
+        pending = [f"{host} ({kind}): {int(now - started)}s"
+                   for host, kind, started in self.pending_requests.values()]
+        return {"page_host": urlparse(self.page.url).hostname or "unknown",
+                "request_responses": list(self.request_responses),
+                "pending_requests": pending[-8:],
+                "network_issues": list(self.network_issues)}
 
     def identity(self, year, term):
         if not self.context:
@@ -59,10 +116,24 @@ class PortalSession:
         return weeks  # Partial retrieval never becomes a successful result.
 
     def close(self):
-        if self.browser and self.browser.is_connected():
-            self.browser.close()
-        self.browser = self.context = self.page = None
-        self.student_id = None
+        try:
+            if self.context:
+                try:
+                    self.context.close()
+                except PlaywrightError:
+                    # The student may already have closed the browser window.
+                    pass
+            if self.browser and self.browser.is_connected():
+                self.browser.close()
+        finally:
+            if self._profile:
+                self._profile.cleanup()
+            self._profile = None
+            self.browser = self.context = self.page = None
+            self.student_id = None
+            self.network_issues = []
+            self.request_responses = []
+            self.pending_requests = {}
 
 
 def demo_identity():

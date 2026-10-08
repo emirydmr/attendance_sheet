@@ -41,6 +41,11 @@ def load_browser_executable(channel):
         return None
 
 
+def configured_browser_name(channel):
+    selected = load_browser_executable(channel)
+    return Path(selected).name if selected else BROWSER_NAMES[channel]
+
+
 def save_browser_executable(channel, executable_path):
     """Persist a browser path only after the caller has successfully launched it."""
     if channel not in BROWSER_NAMES:
@@ -95,7 +100,7 @@ def launch_browser(playwright, channel=None, *, headless, executable_path=None):
             return launch_path(executable_path)
         except Error as exc:
             raise ValueError(
-                f"Could not launch {BROWSER_NAMES[channel]} using the selected executable. "
+                f"Could not launch the selected browser ({Path(executable_path).name}). "
                 "Check the file and automation policies. No browser was downloaded."
             ) from exc
 
@@ -103,9 +108,13 @@ def launch_browser(playwright, channel=None, *, headless, executable_path=None):
     if preferred:
         try:
             return launch_path(preferred)
-        except (Error, ValueError):
-            # A saved installation can move or be removed.
-            pass
+        except (Error, ValueError) as exc:
+            # Never quietly switch to Edge if a selected browser stops working.
+            raise ValueError(
+                f"Selected browser ({Path(preferred).name}) could not launch. "
+                "Use Locate browser to choose another executable. / "
+                "所选浏览器无法启动，请重新选择浏览器。"
+            ) from exc
 
     try:
         return playwright.chromium.launch(channel=channel, headless=headless, timeout=15000)
@@ -118,6 +127,33 @@ def launch_browser(playwright, channel=None, *, headless, executable_path=None):
         ) from exc
 
 
+def launch_login_context(playwright, profile_dir, channel=None):
+    """Open a visible regular profile for one student, never the user's own profile."""
+    channel = channel or default_channel()
+    if channel not in BROWSER_NAMES:
+        raise ValueError("Unsupported installed browser / 不支持的已安装浏览器。")
+    selected = load_browser_executable(channel)
+    options = {"headless": False, "timeout": 15000}
+    if selected:
+        path = Path(selected).expanduser()
+        if not path.is_file() or (platform.system() == "Windows" and path.suffix.lower() != ".exe"):
+            raise ValueError(
+                f"Selected browser ({path.name}) is unavailable. Use Locate browser to choose another executable."
+            )
+        options["executable_path"] = str(path)
+    else:
+        options["channel"] = channel
+    try:
+        return playwright.chromium.launch_persistent_context(profile_dir, **options)
+    except Error as exc:
+        name = Path(selected).name if selected else BROWSER_NAMES[channel]
+        raise ValueError(
+            f"Could not open {name} with a temporary login profile. Check browser automation "
+            "policies or use Locate browser. No browser was downloaded. / "
+            f"无法用临时登录配置启动 {name}。请检查浏览器自动化策略。未下载浏览器。"
+        ) from exc
+
+
 def check_browser(playwright, channel=None, *, executable_path=None):
     """Offline launch probe using a separate browser, never the student's session."""
     channel = channel or default_channel()
@@ -126,6 +162,7 @@ def check_browser(playwright, channel=None, *, executable_path=None):
         options["executable_path"] = executable_path
     browser = launch_browser(playwright, channel, **options)
     try:
-        return {"name": BROWSER_NAMES[channel], "version": browser.version}
+        return {"name": Path(executable_path).name if executable_path else configured_browser_name(channel),
+                "version": browser.version}
     finally:
         browser.close()
