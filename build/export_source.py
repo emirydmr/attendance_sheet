@@ -15,7 +15,8 @@ BUILD_FILES = (
 
 def source_files():
     files = [ROOT / 'README.md', ROOT / 'requirements.txt',
-             ROOT / '.gitignore', ROOT / '.gitattributes']
+             ROOT / '.gitignore', ROOT / '.gitattributes',
+             ROOT / '.github/workflows/build-release.yml']
     files += [p for p in (ROOT / 'app').rglob('*') if p.is_file()
               and p.suffix in ALLOWED_APP_SUFFIXES and '__pycache__' not in p.parts]
     files += [ROOT / 'build' / relative for relative in BUILD_FILES]

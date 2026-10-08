@@ -13,6 +13,8 @@ dependencies, verifies the assets and browser, runs the tests, and packages the 
 Existing environments are reused. Microsoft Edge is required but is not bundled;
 if the browser preflight cannot launch it, a file picker lets you select its
 executable. No separate preparation command is needed.
+GitHub Actions uses `-NoBrowserPrompt` so a failed browser check fails the job
+instead of waiting for a file picker or Enter key.
 
 Output: `build\windows\dist\AttendanceBook.exe`. Generated spec files,
 work files, build reports and the virtual environment remain under

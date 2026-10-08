@@ -1,0 +1,104 @@
+name: Build desktop applications
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            build/requirements-build.txt
+      - name: Create build environment
+        shell: pwsh
+        run: python -m venv build/windows/.venv
+      - name: Test and build Windows EXE
+        shell: pwsh
+        run: .\build\windows\build_windows.ps1 -NoBrowserPrompt
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build/windows/dist/AttendanceBook.exe -PathType Leaf)) {
+            throw 'Windows EXE is missing.'
+          }
+          Get-FileHash build/windows/dist/AttendanceBook.exe -Algorithm SHA256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AttendanceBook-windows-x64
+          path: build/windows/dist/AttendanceBook.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            build/requirements-build.txt
+      - name: Prepare build environment
+        run: ./build/macos/build_macos.command --prepare --downloads-ready
+      - name: Test and build macOS APP
+        run: ./build/macos/build_macos.command
+      - name: Package APP preserving macOS metadata
+        run: |
+          test -f build/macos/dist/AttendanceBook.app/Contents/MacOS/AttendanceBook
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/dist/AttendanceBook.app \
+            build/macos/dist/AttendanceBook-macos-arm64.zip
+          shasum -a 256 build/macos/dist/AttendanceBook-macos-arm64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AttendanceBook-macos-arm64
+          path: build/macos/dist/AttendanceBook-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: AttendanceBook-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release-assets/AttendanceBook.exe
+          test -s release-assets/AttendanceBook-macos-arm64.zip
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to replace its assets."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" release-assets/AttendanceBook.exe \
+            release-assets/AttendanceBook-macos-arm64.zip \
+            --draft --generate-notes --verify-tag

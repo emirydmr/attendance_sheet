@@ -1,4 +1,4 @@
-param([switch]$CheckOnly, [switch]$ConsoleBuild)
+param([switch]$CheckOnly, [switch]$ConsoleBuild, [switch]$NoBrowserPrompt)
 $ErrorActionPreference = 'Stop'
 try {
 if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows executable on Windows.' }
@@ -26,7 +26,9 @@ if ($LASTEXITCODE) { throw 'Build dependency installation failed.' }
 & $python -m pip check
 if ($LASTEXITCODE) { throw 'Installed dependency compatibility check failed.' }
 
-& $python build/check_environment.py --require-build --browser msedge --prompt-browser
+$preflight = @('build/check_environment.py', '--require-build', '--browser', 'msedge')
+if (-not $NoBrowserPrompt) { $preflight += '--prompt-browser' }
+& $python @preflight
 if ($LASTEXITCODE) {
     Write-Host 'Check the selected Microsoft Edge executable and browser automation policies.'
     throw 'Preflight failed. Address the reported errors, then rerun.'
@@ -60,7 +62,7 @@ Write-Host "Draft created: build\windows\dist\$appName.exe. Clean-Windows login,
     # Keep an interactive PowerShell window open so the error can be read.
     # Do not block redirected/non-interactive builds.
     try {
-        if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        if (-not $NoBrowserPrompt -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
             [void](Read-Host "Press Enter to close")
         }
     } catch { }

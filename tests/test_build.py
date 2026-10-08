@@ -20,6 +20,7 @@ class BuildTests(unittest.TestCase):
         self.assertIn(Path('app/assets/fonts/AttendanceCJK.otf'), paths)
         self.assertIn(Path('.gitignore'), paths)
         self.assertIn(Path('.gitattributes'), paths)
+        self.assertIn(Path('.github/workflows/build-release.yml'), paths)
         self.assertIn(Path('build/hooks/hook-playwright.sync_api.py'), paths)
 
     def test_runtime_pins_cover_external_imports(self):
