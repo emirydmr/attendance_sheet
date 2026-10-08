@@ -5,15 +5,18 @@ the student is present and can log in to the university portal.
 
 ## Requirements
 
-- Windows: Windows 11 x64 with Microsoft Edge installed.
+- Windows: Windows 11 x64 with Microsoft Edge installed by default. Another
+  installed Chromium-based browser can be selected by executable path; this is
+  experimental and must be checked on the target computer.
 - macOS: macOS 14 or newer with Google Chrome installed.
 - Running from source or building: Python 3.12 with Tkinter.
 
 Packaged applications do not require Python or LaTeX. Browsers are not bundled.
 The application checks the required browser at startup and provides
 **Check browser / retry** and **Locate browser…** if it cannot launch.
-A successful check shows a green checkmark, a confirmation message and the
-browser version. It never downloads a browser.
+A successful check shows a green checkmark, the selected browser's filename or
+name, and its version. This checks launch, not university login. It never
+downloads a browser.
 
 ## Setup and launch
 
@@ -57,6 +60,12 @@ command. Add `--photo-popup` to open the photo importer immediately.
    to select the installed browser executable, or resolve any installation or
    automation restrictions, then click **Check browser / retry**.
 2. Click **Open browser / log in** and let the student sign in.
+   If the page keeps loading after sign-in, click **Check login…** while it is
+   still spinning, then refresh that browser once and check again. Compare the
+   two results. The check reports recent response hosts/statuses, requests
+   still in progress and browser network error codes already observed; it does
+   not make a new request or establish whether authentication succeeded.
+   It does not show credentials, full URLs or page contents.
 3. Select the academic start year, semester and inclusive week range.
 4. Retrieve student number/major, student name and weekly timetables separately.
    Click or hover over a result status to inspect the retrieved information.
@@ -125,7 +134,7 @@ poc/                    earlier portal experiments
 reference/latex/        unused LaTeX draft
 ```
 
-Playwright opens a separate Edge/Chrome login window. Subsequent retrieval uses
+Playwright opens a separate installed-browser login window. Subsequent retrieval uses
 HTTP requests in that browser session. The application requests each selected
 teaching week sequentially.
 
@@ -152,7 +161,10 @@ outputs stay under `build/windows/` or `build/macos/`.
 Output: `build/windows/dist/AttendanceBook.exe`.
 
 The EXE includes Python/Tkinter, Playwright's driver, fonts, icons and native
-drag-and-drop support, but not Edge. Recipients must have Edge installed.
+drag-and-drop support, but no browser. It defaults to installed Edge. Use
+**Locate browser…** to try an installed Chrome or other Chromium executable
+(such as 360e) without increasing the EXE size. Other Chromium builds are not
+officially validated by Playwright, so test both login and PDF export.
 
 For a console-enabled diagnostic build:
 
@@ -182,6 +194,27 @@ Keep the complete APP bundle together. Recipients must have Chrome installed.
 Apple Silicon and Intel require separate builds using the matching Python
 architecture.
 
+## GitHub builds and releases
+
+The [build workflow](.github/workflows/build-release.yml) builds the Windows x64
+EXE and macOS Apple Silicon APP on GitHub-hosted runners. Pushes to `main`, pull
+requests and manual runs produce downloadable Actions artifacts. A pushed `v*`
+tag also creates a **draft** GitHub Release with both files. Publish the draft
+after testing it on the teacher's Windows computer. No repository secrets are
+needed for the workflow; it uses GitHub's built-in token.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Only tag a commit already pushed to `main`. The macOS release ZIP contains the
+whole `.app`; the Windows release file is the single `.exe`. Browser binaries
+are not included. Hosted-runner checks cover packaging and offline UI/PDF
+components, **not** a real university login or a clean teacher-computer test.
+The macOS build is unsigned and unnotarized. An Intel Mac build is not yet in
+the workflow.
+
 ### Optional source archive
 
 Using the prepared platform Python environment, run:
@@ -196,9 +229,20 @@ Output: `build/source/AttendanceBook-source.zip`.
 
 ## Troubleshooting
 
-- **Browser check fails:** use **Locate browser…** to select the Edge or Chrome
-  executable. Organization policies may restrict automation. After resolving
-  the problem, click **Check browser / retry**.
+- **Browser check fails:** use **Locate browser…** to select the Edge, Chrome or
+  another Chromium executable. Organization policies may restrict automation.
+  After resolving the problem, click **Check browser / retry**. A failed saved
+  browser selection is reported; the app does not silently fall back to Edge.
+- **Login spins in controlled Edge:** login now uses a temporary regular browser
+  profile rather than an incognito-like context. This specifically tests whether
+  isolated/incognito login storage caused the stall; it has not been confirmed
+  on the teacher's computer. Click **Check login…** to see passive, sanitized
+  browser responses and network errors. Compare the same login in ordinary Edge
+  and manually opened Edge InPrivate on that computer: if InPrivate also stalls,
+  profile/session isolation is suspect; if InPrivate works but the controlled
+  browser stalls, browser automation or organization policy is more likely.
+  Try Chrome or 360e through **Locate browser…** only if installed. Do not send
+  screenshots, traces, HAR files or full login URLs containing session details.
 - **Different browser for an explicit run:** use `--browser msedge` or
   `--browser chrome`; that browser must already be installed.
 - **Tkinter or drag-and-drop fails:** use Python 3.12 with Tkinter and the correct
@@ -215,9 +259,9 @@ Output: `build/source/AttendanceBook-source.zip`.
 
 ## Release status
 
-Build recipes are prepared, but packaged Windows and macOS releases have not
-yet been built and validated on clean target machines. Windows Edge behavior
-still needs native Windows verification. Complete live retrieval, native
+The GitHub build/release workflow is prepared but has not yet run. Its outputs
+still need testing on clean target machines. Windows Edge behavior on the
+teacher's computer needs diagnosis. Complete live retrieval, native
 clipboard/drag-and-drop and final printed layout need release validation.
 
 Code signing and macOS notarization are not configured.

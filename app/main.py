@@ -15,7 +15,7 @@ from document import pdf_filename, print_pdf, validate_book, save_browser_docume
 from photo import PhotoDialog, create_root
 from branding import apply_icon
 from field_help import HELP, TIMETABLE_URL, description
-from browser_config import default_channel, BROWSER_NAMES, check_browser, save_browser_executable
+from browser_config import default_channel, configured_browser_name, check_browser, save_browser_executable
 
 SEMESTERS = (
     ("11", "First semester", "第一学期"),
@@ -30,6 +30,8 @@ TEXT = {
     "browser_available": ("✓ {name} check passed (version {version}).", "✓ {name} 检查成功（版本 {version}）。"),
     "browser_check_passed": ("Browser check passed. You can open the login browser.", "浏览器检查成功，可以打开登录页面。"),
     "browser_unavailable": ("{name} cannot launch. Use Locate browser to select its executable, or check installation and automation policies. No automatic downloads.", "{name} 无法启动。请点击“选择浏览器”指定可执行文件，或检查浏览器安装及自动化策略。不会自动下载。"),
+    "login_diagnostic": ("Check login…", "检查登录…"),
+    "login_checked": ("Login check complete. Review the result.", "登录检查完成，请查看结果。"),
     "field_info": ("Field information", "字段说明"),
     "portal_timetable": ("Open portal timetable", "打开门户课表"),
     "font_license": ("Font licence", "字体许可"),
@@ -110,6 +112,8 @@ def worker(commands, events, channel, demo):
                         if not demo:
                             session.open()
                         result = None
+                    elif task == "login_diagnostic":
+                        result = {"demo": True} if demo else session.diagnose_login()
                     elif task == "end":
                         session.close()
                         result = None
@@ -145,6 +149,7 @@ class AttendanceApp:
         self.channel = channel or default_channel()
         self.browser_state = "checking"
         self.browser_version = ""
+        self.browser_name = configured_browser_name(self.channel)
         self.browser_prompted = False
         self.browser_previous_state = "checking"
         apply_icon(root)
@@ -212,8 +217,14 @@ class AttendanceApp:
             button = self.widget(session, ttk.Button, key, command=command)
             button.pack(side="left", padx=(0, 10))
             self.actions.append(button)
-        self.browser_status = ttk.Label(panel, wraplength=770)
-        self.browser_status.pack(anchor="w", pady=(0, 10))
+        browser_row = ttk.Frame(panel)
+        browser_row.pack(fill="x", pady=(0, 10))
+        self.browser_status = ttk.Label(browser_row, wraplength=650)
+        self.browser_status.pack(side="left", anchor="w", fill="x", expand=True)
+        self.login_diagnostic_button = self.widget(
+            browser_row, ttk.Button, "login_diagnostic", command=lambda: self.submit("login_diagnostic"))
+        self.login_diagnostic_button.pack(side="right", padx=(8, 0))
+        self.actions.append(self.login_diagnostic_button)
         selections = ttk.Frame(panel)
         selections.pack(fill="x", pady=(0, 14))
         for col, key in enumerate(("year", "term", "first", "last")):
@@ -307,7 +318,7 @@ class AttendanceApp:
     def refresh(self):
         self.browser_status.configure(
             text=self.tr("browser_" + self.browser_state).format(
-                name=BROWSER_NAMES[self.channel], version=self.browser_version),
+                name=self.browser_name, version=self.browser_version),
             foreground={"available": "#167342", "unavailable": "#a52b28"}.get(self.browser_state, "#555"))
         self.photo_status.configure(text=self.tr("photo_ready" if self.photo else "no_photo"))
         for key, state in self.states.items():
@@ -390,7 +401,7 @@ class AttendanceApp:
             self.states[task] = "working"
             self.results.pop(task, None)
             self.refresh()
-        self.status.configure(text=self.tr("browser_checking").format(name=BROWSER_NAMES[self.channel])
+        self.status.configure(text=self.tr("browser_checking").format(name=self.browser_name)
                               if task in ("check_browser", "select_browser") else self.tr("working"))
         self.commands.put((task, args))
 
@@ -451,6 +462,25 @@ class AttendanceApp:
                 entry.pack(fill="x")
                 self.bind_help(entry, k)
             ttk.Button(container, text=self.tr("confirm"), command=lambda: (self.set_names_state(), window.destroy())).pack(anchor="e", pady=(8, 0))
+
+    def show_login_diagnostic(self, result):
+        if result.get("demo"):
+            message = "Demo mode: no portal login. / 示例模式：未登录门户。"
+        else:
+            chinese = self.language.get() == "中文"
+            verdict = ("仅显示受控浏览器已观察到的事件；不发送新请求，也不判定登录是否成功。" if chinese else
+                       "Shows events already observed in the controlled browser. No new request or login verdict.")
+            responses = "\n".join(result["request_responses"]) or ("无" if chinese else "None observed")
+            pending = "\n".join(result["pending_requests"]) or ("无" if chinese else "None observed")
+            issues = "\n".join(result["network_issues"]) or ("无" if chinese else "None observed")
+            message = (f"{verdict}\n\n"
+                       f"{'当前页面域名' if chinese else 'Visible page host'}: {result['page_host']}\n"
+                       f"{'最近响应（仅域名、类型和状态）' if chinese else 'Recent responses (host/type/status only)'}:\n{responses}\n"
+                       f"{'进行中的请求（仅域名、类型和秒数）' if chinese else 'Pending requests (host/type/seconds only)'}:\n{pending}\n"
+                       f"{'网络错误（仅域名和状态）' if chinese else 'Network issues (host/status only)'}:\n{issues}\n\n"
+                       + ("不包含用户名、密码、网址参数或页面内容。" if chinese else
+                          "No username, password, URL parameters or page content is included."))
+        messagebox.showinfo(self.tr("login_diagnostic"), message, parent=self.root)
 
     def tooltip(self, event, key):
         self.hide_tooltip()
@@ -570,7 +600,7 @@ class AttendanceApp:
                 if task == "check_browser":
                     self.browser_state = "unavailable"
                     self.browser_version = ""
-                    self.status.configure(text=self.tr("browser_unavailable").format(name=BROWSER_NAMES[self.channel]))
+                    self.status.configure(text=self.tr("browser_unavailable").format(name=self.browser_name))
                     if not self.browser_prompted and not self.closing:
                         self.browser_prompted = True
                         self.root.after_idle(self.locate_browser)
@@ -581,6 +611,7 @@ class AttendanceApp:
                 if task in ("check_browser", "select_browser"):
                     self.browser_state = "available"
                     self.browser_version = result["version"]
+                    self.browser_name = result["name"]
                     self.errors.pop(task, None)
                     if task == "select_browser":
                         self.clear_student()
@@ -599,8 +630,11 @@ class AttendanceApp:
                     self.status.configure(text=f"{self.tr('saved')}: {result}")
                 elif task == "browser_print":
                     self.status.configure(text=f"{self.tr('browser_saved')} {result[0]}" + (" (Browser did not open automatically / 浏览器未自动打开)" if not result[1] else ""))
+                elif task == "login_diagnostic":
+                    self.show_login_diagnostic(result)
                 if task not in ("pdf", "browser_print"):
-                    self.status.configure(text=self.tr("browser_check_passed" if task in ("check_browser", "select_browser") else
+                    self.status.configure(text=self.tr("login_checked" if task == "login_diagnostic" else
+                                                       "browser_check_passed" if task in ("check_browser", "select_browser") else
                                                        "signed" if task == "open" else "ready" if task == "end" else "completed"))
             self.refresh()
         self.root.after(100, self.poll)

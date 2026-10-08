@@ -33,6 +33,12 @@ assert app.browser_version in app.browser_status['text']
 assert 'check passed' in app.browser_status['text']
 assert str(app.browser_status['foreground']) == '#167342'
 assert 'Browser check passed' in app.status['text']
+with patch('main.messagebox.showinfo') as diagnostic_message:
+    app.submit('login_diagnostic')
+    wait_done()
+    diagnostic_message.assert_called_once()
+    assert 'Demo mode' in diagnostic_message.call_args.args[1]
+assert 'Login check complete' in app.status['text']
 with patch('main.check_browser', side_effect=ValueError('Simulated missing browser')),      patch.object(app, 'locate_browser') as picker:
     app.submit('check_browser')
     wait_done()
