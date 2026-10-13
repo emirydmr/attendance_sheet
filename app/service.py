@@ -1,87 +1,57 @@
-"""Single-thread-owned browser session and read-only student retrieval."""
+"""Single-thread-owned Selenium session and read-only student retrieval."""
 from __future__ import annotations
-
 from urllib.parse import urlparse
-import re
 import tempfile
 import time
-
-from playwright.sync_api import Error as PlaywrightError
-
-from portal import BASE, Selection, PortalError, read_http, profile_fields
-from browser_config import default_channel, launch_login_context
+from selenium.common.exceptions import TimeoutException, WebDriverException
+from portal import BASE, Selection, PortalError, read_http, profile_fields, BrowserPortalClient
+from browser_config import launch_browser
 
 
 class PortalSession:
-    def __init__(self, playwright, channel=None):
-        self.pw, self.channel = playwright, channel or default_channel()
-        self.browser = self.context = self.page = None
-        self._profile = None
+    def __init__(self, profile=None):
+        self.profile = profile
+        self.driver = self.client = self._profile = None
         self.student_id = None
-        self.network_issues = []
-        self.request_responses = []
-        self.pending_requests = {}
-
-    def _request_started(self, request):
-        if request.resource_type in ("document", "xhr", "fetch"):
-            host = urlparse(request.url).hostname or "unknown"
-            self.pending_requests[id(request)] = (host, request.resource_type, time.monotonic())
-
-    def _request_finished(self, request):
-        self.pending_requests.pop(id(request), None)
-
-    def _request_failed(self, request):
-        self.pending_requests.pop(id(request), None)
-        # Record only host and Chromium error code, never URL, headers or body.
-        failure = request.failure or ""
-        match = re.search(r"net::ERR_[A-Z0-9_]+", failure)
-        if match:
-            host = urlparse(request.url).hostname or "unknown"
-            self.network_issues.append(f"{host}: {match.group()}")
-            self.network_issues = self.network_issues[-8:]
-
-    def _response_received(self, response):
-        if response.request.resource_type in ("document", "xhr", "fetch"):
-            host = urlparse(response.url).hostname or "unknown"
-            self.request_responses.append(
-                f"{host} ({response.request.resource_type}): HTTP {response.status}")
-            self.request_responses = self.request_responses[-12:]
-        if response.status >= 400 and response.request.resource_type in ("document", "xhr", "fetch"):
-            host = urlparse(response.url).hostname or "unknown"
-            self.network_issues.append(f"{host}: HTTP {response.status}")
-            self.network_issues = self.network_issues[-8:]
 
     def open(self):
         self.close()
+        if not self.profile:
+            raise PortalError("Select a browser profile first / 请先选择浏览器配置。")
         self._profile = tempfile.TemporaryDirectory(prefix="attendance-login-")
         try:
-            self.context = launch_login_context(self.pw, self._profile.name, self.channel)
+            self.driver = launch_browser(self.profile, headless=False, profile_dir=self._profile.name)
+            self.driver.set_page_load_timeout(30)
+            self.driver.set_script_timeout(30)
+            self.client = BrowserPortalClient(self.driver)
+            try:
+                self.driver.get(BASE)
+            except TimeoutException:
+                return {"navigation_timeout": True}  # Keep visible window for manual login/refresh.
+            return {"navigation_timeout": False}
         except Exception:
             self.close()
             raise
-        self.context.on("request", self._request_started)
-        self.context.on("requestfinished", self._request_finished)
-        self.context.on("requestfailed", self._request_failed)
-        self.context.on("response", self._response_received)
-        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
-        self.page.goto(BASE, wait_until="domcontentloaded", timeout=30000)
 
     def diagnose_login(self):
-        """Report browser events without starting another network request."""
-        if not self.context or not self.page or self.page.is_closed():
+        """Passive state only: never send a probe or claim authentication."""
+        if not self.driver:
             raise PortalError("Open the login browser first / 请先打开登录页面。")
-        now = time.monotonic()
-        pending = [f"{host} ({kind}): {int(now - started)}s"
-                   for host, kind, started in self.pending_requests.values()]
-        return {"page_host": urlparse(self.page.url).hostname or "unknown",
-                "request_responses": list(self.request_responses),
-                "pending_requests": pending[-8:],
-                "network_issues": list(self.network_issues)}
+        state = self.driver.execute_script("""
+            return {readyState: document.readyState,
+                    resources: performance.getEntriesByType('resource').slice(-12).map(r => {
+                        let host; try {host = new URL(r.name).hostname} catch (_) {host = 'unknown'}
+                        return {host, kind: r.initiatorType, duration: Math.round(r.duration)};
+                    })};
+        """)
+        return {"page_host": urlparse(self.driver.current_url).hostname or "unknown",
+                "page_state": state["readyState"],
+                "request_responses": list(self.client.observations), "resources": state["resources"]}
 
     def identity(self, year, term):
-        if not self.context:
+        if not self.client:
             raise PortalError("Open the login browser first / 请先打开登录页面。")
-        result = read_http(self.context, Selection(year, term, 1))
+        result = read_http(self.client, Selection(year, term, 1))
         sid = result["identity"]["学号"]
         if self.student_id is not None and self.student_id != sid:
             raise PortalError("Student changed. Start a new session / 学生已更换，请重新开始。")
@@ -91,49 +61,37 @@ class PortalSession:
 
     def names(self, year, term):
         self.identity(year, term)
-        response = self.context.request.get(BASE + "/allogene/page/userinfo.htm", timeout=25000)
-        try:
-            if response.status != 200 or urlparse(response.url).hostname != "yjs.chd.edu.cn":
-                raise PortalError("Sign-in expired / 登录已失效。")
-            details, _ = profile_fields(response.text())
-            if not details.get("recorded_name"):
-                raise PortalError("Name field missing / 未找到姓名字段。")
-            return {k: v for k, v in details.items() if k in ("recorded_name", "chinese_name", "passport_name")}
-        finally:
-            response.dispose()
+        details, _ = profile_fields(self.client.get(BASE + "/allogene/page/userinfo.htm"))
+        if not details.get("recorded_name"):
+            raise PortalError("Name field missing / 未找到姓名字段。")
+        return {k: v for k, v in details.items() if k in ("recorded_name", "chinese_name", "passport_name")}
 
     def timetables(self, year, term, first, last, progress):
         self.identity(year, term)
         weeks = []
         for number in range(first, last + 1):
-            result = read_http(self.context, Selection(year, term, number))
+            result = read_http(self.client, Selection(year, term, number))
             if result["identity"]["学号"] != self.student_id:
                 raise PortalError("Student identity mismatch / 学号不一致。")
             weeks.append(result)
             progress(number, last)
             if number != last:
-                time.sleep(.35)  # Sequential, modest-rate requests; no probing.
+                time.sleep(.35)
         return weeks  # Partial retrieval never becomes a successful result.
 
     def close(self):
+        driver, folder = self.driver, self._profile
+        self.driver = self.client = self._profile = None
+        self.student_id = None
         try:
-            if self.context:
+            if driver:
                 try:
-                    self.context.close()
-                except PlaywrightError:
-                    # The student may already have closed the browser window.
+                    driver.quit()
+                except WebDriverException:
                     pass
-            if self.browser and self.browser.is_connected():
-                self.browser.close()
         finally:
-            if self._profile:
-                self._profile.cleanup()
-            self._profile = None
-            self.browser = self.context = self.page = None
-            self.student_id = None
-            self.network_issues = []
-            self.request_responses = []
-            self.pending_requests = {}
+            if folder:
+                folder.cleanup()
 
 
 def demo_identity():

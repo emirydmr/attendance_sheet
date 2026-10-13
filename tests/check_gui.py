@@ -25,45 +25,59 @@ def wait_done():
     assert not app.busy, "UI worker timed out"
 
 
-assert app.busy, 'Startup check must run asynchronously before other actions'
+assert not app.busy, 'Startup must not launch browsers or download drivers'
+assert app.profile is None, 'No operating-system browser default'
+assert 'Select a browser' in app.browser_status['text']
+assert not hasattr(app, 'browser_dropdown')
+assert any(key == 'browser_settings' for _, key in app.translated)
+profile = {'id': 'test', 'name': 'Explicit Firefox', 'browser': 'firefox',
+           'driver_kind': 'geckodriver', 'driver_mode': 'auto',
+           'executable': '/test/firefox', 'driver_path': '/test/geckodriver'}
+with patch('main.resolve_profile', return_value=profile), \
+     patch('main.save_profile', return_value=profile) as save_choice:
+    assert app.apply_profile(profile)
+    wait_done()
+    save_choice.assert_called_once_with(profile, activate=True)
+assert app.profile == profile
+assert 'Explicit Firefox' in app.browser_status['text']
+assert 'profile saved' in app.status['text']
+with patch('browser_settings.load_profiles', return_value=[]), \
+        patch('browser_settings.get_active_profile', return_value=None), \
+        patch('browser_settings.driver_library', return_value=[]):
+    app.open_browser_settings()
+    settings = app.settings_dialog
+    root.update()
+    assert settings.window.winfo_exists()
+    assert settings._vars['browser'].get() == '', 'First-use browser must be explicit'
+    settings._browser_combo.current(2)
+    settings._browser_combo.event_generate('<<ComboboxSelected>>')
+    assert settings._vars['browser'].get() == 'firefox'
+    assert settings._vars['driver_kind'].get() == 'geckodriver'
+    settings.destroy()
+app.submit('open')
 wait_done()
-assert app.browser_state == 'available'
-assert app.browser_status['text'].startswith('✓ ')
-assert app.browser_version in app.browser_status['text']
-assert 'check passed' in app.browser_status['text']
-assert str(app.browser_status['foreground']) == '#167342'
-assert 'Browser check passed' in app.status['text']
+assert app.session_open
+with patch('main.messagebox.askyesno', return_value=False) as switch_prompt:
+    assert not app.apply_profile(dict(profile, id='other'))
+    switch_prompt.assert_called_once()
+    assert not app.busy
+    assert app.profile == profile
+app.submit('end')
+wait_done()
+assert not app.session_open
 with patch('main.messagebox.showinfo') as diagnostic_message:
     app.submit('login_diagnostic')
     wait_done()
     diagnostic_message.assert_called_once()
     assert 'Demo mode' in diagnostic_message.call_args.args[1]
 assert 'Login check complete' in app.status['text']
-with patch('main.check_browser', side_effect=ValueError('Simulated missing browser')),      patch.object(app, 'locate_browser') as picker:
-    app.submit('check_browser')
+with patch('main.resolve_profile', side_effect=ValueError('Simulated missing browser')):
+    app.apply_profile(dict(profile, id='other'))
     wait_done()
-    root.update_idletasks()
-    picker.assert_called_once_with()
-with patch('main.filedialog.askopenfilename', return_value=''):
-    app.locate_browser()
-    assert not app.busy
-assert app.browser_state == 'unavailable'
-assert app.browser_version == ''
-assert str(app.browser_status['foreground']) == '#a52b28'
-assert 'No automatic downloads' in app.browser_status['text']
+assert app.profile == profile, 'Failed selection must preserve previous profile'
 app.language.set('中文')
 app.translate()
-assert '不会自动下载' in app.browser_status['text']
-app.language.set('English')
-app.translate()
-app.submit('check_browser')
-wait_done()
-assert app.browser_state == 'available'
-assert 'check_browser' not in app.errors
-app.language.set('中文')
-app.translate()
-assert '检查成功' in app.browser_status['text']
-assert app.browser_version in app.browser_status['text']
+assert '已选择' in app.browser_status['text']
 app.language.set('English')
 app.translate()
 assert root._attendance_icon.width() == 256
@@ -123,9 +137,7 @@ app.omit_empty_checkbox.invoke()
 assert app.payload()['omit_empty_weeks'] is True
 app.language.set('English')
 app.translate()
-app.submit('check_browser')
-wait_done()
-assert app.payload()['student_id'] == 'DEMO001', 'Checking browser must preserve student data'
+assert app.payload()['student_id'] == 'DEMO001'
 app.language.set("中文")
 app.translate()
 assert app.badges["identity"]["text"] == "成功 · 点击查看"

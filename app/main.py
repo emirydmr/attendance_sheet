@@ -15,7 +15,8 @@ from document import pdf_filename, print_pdf, validate_book, save_browser_docume
 from photo import PhotoDialog, create_root
 from branding import apply_icon
 from field_help import HELP, TIMETABLE_URL, description
-from browser_config import default_channel, configured_browser_name, check_browser, save_browser_executable
+from browser_config import get_active_profile, save_profile, resolve_profile
+from browser_settings import BrowserSettingsDialog
 
 SEMESTERS = (
     ("11", "First semester", "第一学期"),
@@ -24,12 +25,13 @@ SEMESTERS = (
 )
 
 TEXT = {
-    "check_browser": ("Check browser / retry", "检查浏览器 / 重试"),
-    "locate_browser": ("Locate browser…", "选择浏览器…"),
-    "browser_checking": ("Checking {name}…", "正在检查 {name}…"),
-    "browser_available": ("✓ {name} check passed (version {version}).", "✓ {name} 检查成功（版本 {version}）。"),
-    "browser_check_passed": ("Browser check passed. You can open the login browser.", "浏览器检查成功，可以打开登录页面。"),
-    "browser_unavailable": ("{name} cannot launch. Use Locate browser to select its executable, or check installation and automation policies. No automatic downloads.", "{name} 无法启动。请点击“选择浏览器”指定可执行文件，或检查浏览器安装及自动化策略。不会自动下载。"),
+    "browser_settings": ("Browser settings…", "浏览器设置…"),
+    "browser_missing": ("Select a browser in Browser settings to begin.", "请在浏览器设置中选择浏览器。"),
+    "browser_selected": ("Selected: {name} · {driver}", "已选择：{name} · {driver}"),
+    "browser_selected_feedback": ("✓ Browser profile saved. Ready to open the login browser.", "✓ 浏览器配置已保存，可以打开登录页面。"),
+    "navigation_timeout": ("The browser is open, but the initial page timed out. Finish login or refresh in that window.", "浏览器已打开，但初始页面加载超时。请在该窗口完成登录或刷新。"),
+    "switch_browser_confirm": ("Switching browsers will close the student's login and clear retrieved data. Continue?",
+                               "切换浏览器将关闭学生登录会话并清除已获取的信息。继续吗？"),
     "login_diagnostic": ("Check login…", "检查登录…"),
     "login_checked": ("Login check complete. Review the result.", "登录检查完成，请查看结果。"),
     "field_info": ("Field information", "字段说明"),
@@ -79,84 +81,79 @@ TEXT = {
 }
 
 
-def worker(commands, events, channel, demo):
-    # Every Playwright object belongs to this thread. Tk owns only messages/data.
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as pw:
-        session = PortalSession(pw, channel)
+def worker(commands, events, profile, demo):
+    # WebDriver belongs exclusively to this worker. Tk owns only data/messages.
+    session = PortalSession(profile)
+    try:
+        while True:
+            task, args = commands.get()
+            if task == "quit":
+                break
+            try:
+                if task == "activate_profile":
+                    # Apply is explicit setup consent; only the matching driver downloads.
+                    candidate = resolve_profile(args[0], allow_download=True)
+                    events.put(("session_closed", task, None))
+                    session.close()
+                    saved = save_profile(candidate, activate=True)
+                    profile = saved
+                    session = PortalSession(profile)
+                    result = profile
+                elif task == "open":
+                    if not profile and not demo:
+                        raise ValueError("Select a browser profile first / 请先选择浏览器配置。")
+                    if not demo:
+                        # A failed setup must never leave the preceding student's
+                        # authenticated browser available behind a cleared UI.
+                        session.close()
+                        # Only this explicit user action may refresh a cached driver.
+                        profile = resolve_profile(profile, allow_download=True)
+                        session.profile = profile
+                    result = {"navigation_timeout": False} if demo else session.open()
+                elif task == "login_diagnostic":
+                    result = {"demo": True} if demo else session.diagnose_login()
+                elif task == "end":
+                    session.close()
+                    result = None
+                elif task == "identity":
+                    result = demo_identity() if demo else session.identity(*args)
+                elif task == "names":
+                    result = {"recorded_name": "SAMPLE STUDENT"} if demo else session.names(*args)
+                elif task == "weeks":
+                    result = demo_weeks(*args) if demo else session.timetables(
+                        *args, lambda n, last: events.put(("progress", "weeks", (n, last))))
+                elif task == "pdf":
+                    data, destination = args
+                    print_pdf(profile, data, destination)
+                    result = destination
+                elif task == "browser_print":
+                    data, destination = args
+                    result = (destination, save_browser_document(data, destination))
+                else:
+                    raise ValueError("Unknown operation")
+                events.put(("done", task, result))
+            except Exception as exc:
+                # Never expose raw WebDriver errors, cookies or page content.
+                error = str(exc) if isinstance(exc, (PortalError, ValueError)) else type(exc).__name__
+                events.put(("error", task, error))
+    finally:
         try:
-            while True:
-                try:
-                    task, args = commands.get(timeout=.1)
-                except queue.Empty:
-                    if session.page and not session.page.is_closed():
-                        try:
-                            session.page.wait_for_timeout(100)
-                        except Exception:
-                            pass
-                    continue
-                if task == "quit":
-                    break
-                try:
-                    if task == "check_browser":
-                        result = check_browser(pw, channel)
-                    elif task == "select_browser":
-                        executable_path = args[0]
-                        result = check_browser(pw, channel, executable_path=executable_path)
-                        try:
-                            save_browser_executable(channel, executable_path)
-                        except OSError as exc:
-                            raise ValueError("Browser validated, but its selection could not be saved.") from exc
-                        session.close()
-                    elif task == "open":
-                        if not demo:
-                            session.open()
-                        result = None
-                    elif task == "login_diagnostic":
-                        result = {"demo": True} if demo else session.diagnose_login()
-                    elif task == "end":
-                        session.close()
-                        result = None
-                    elif task == "identity":
-                        result = demo_identity() if demo else session.identity(*args)
-                    elif task == "names":
-                        result = {"recorded_name": "SAMPLE STUDENT"} if demo else session.names(*args)
-                    elif task == "weeks":
-                        result = demo_weeks(*args) if demo else session.timetables(
-                            *args, lambda n, last: events.put(("progress", "weeks", (n, last))))
-                    elif task == "pdf":
-                        data, destination = args
-                        print_pdf(pw, channel, data, destination)
-                        result = destination
-                    elif task == "browser_print":
-                        data, destination = args
-                        result = (destination, save_browser_document(data, destination))
-                    else:
-                        raise ValueError("Unknown operation")
-                    events.put(("done", task, result))
-                except Exception as exc:
-                    # Never display a raw Playwright exception with headers/cookies.
-                    error = str(exc) if isinstance(exc, (PortalError, ValueError)) else type(exc).__name__
-                    events.put(("error", task, error))
-        finally:
             session.close()
-    events.put(("stopped", "quit", None))
+        finally:
+            events.put(("stopped", "quit", None))
 
 
 class AttendanceApp:
-    def __init__(self, root, channel=None, demo=False):
+    def __init__(self, root, profile=None, demo=False):
         self.root, self.demo = root, demo
-        self.channel = channel or default_channel()
-        self.browser_state = "checking"
-        self.browser_version = ""
-        self.browser_name = configured_browser_name(self.channel)
-        self.browser_prompted = False
-        self.browser_previous_state = "checking"
+        self.profile = profile if profile is not None else (None if demo else get_active_profile())
+        self.settings_dialog = None
         apply_icon(root)
         self.language = tk.StringVar(value="English")
         self.omit_empty_weeks = tk.BooleanVar(value=True)
         self.commands, self.events = queue.Queue(), queue.Queue()
         self.busy = self.closing = False
+        self.session_open = False
         self.data, self.results, self.errors = {}, {}, {}
         self.photo = None
         self.photo_dialog = None
@@ -176,11 +173,12 @@ class AttendanceApp:
             self.vars[key].trace_add("write", lambda *_args, k=key: self.invalidate(k))
         for key in ("chinese_name", "passport_name"):
             self.vars[key].trace_add("write", lambda *_: self.set_names_state())
-        self.thread = threading.Thread(target=worker, args=(self.commands, self.events, self.channel, demo), daemon=True)
+        self.thread = threading.Thread(target=worker, args=(self.commands, self.events, self.profile, demo), daemon=True)
         self.thread.start()
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.after(100, self.poll)
-        self.submit("check_browser")
+        if not self.profile and not demo:
+            root.after(250, self.open_browser_settings)
 
     def tr(self, key):
         return TEXT[key][int(self.language.get() == "中文")]
@@ -192,8 +190,8 @@ class AttendanceApp:
 
     def build(self):
         self.root.title(self.tr("title"))
-        self.root.geometry("890x810")
-        self.root.minsize(820, 790)
+        self.root.geometry("890x850")
+        self.root.minsize(820, 830)
         style = ttk.Style(self.root)
         style.configure("Title.TLabel", font=("TkDefaultFont", 21, "bold"))
         style.configure("Success.TButton", foreground="#167342")
@@ -211,9 +209,9 @@ class AttendanceApp:
         if self.demo:
             self.widget(panel, ttk.Label, "demo", foreground="#926200").pack(anchor="w", pady=(8, 0))
         session = ttk.Frame(panel)
-        session.pack(fill="x", pady=(18, 16))
-        for key in ("open", "end", "check_browser", "locate_browser"):
-            command = self.locate_browser if key == "locate_browser" else lambda k=key: self.submit(k)
+        session.pack(fill="x", pady=(12, 16))
+        for key in ("open", "end", "browser_settings"):
+            command = self.open_browser_settings if key == "browser_settings" else lambda k=key: self.submit(k)
             button = self.widget(session, ttk.Button, key, command=command)
             button.pack(side="left", padx=(0, 10))
             self.actions.append(button)
@@ -316,10 +314,9 @@ class AttendanceApp:
             self.status.configure(text=self.tr("ready"))
 
     def refresh(self):
-        self.browser_status.configure(
-            text=self.tr("browser_" + self.browser_state).format(
-                name=self.browser_name, version=self.browser_version),
-            foreground={"available": "#167342", "unavailable": "#a52b28"}.get(self.browser_state, "#555"))
+        self.browser_status.configure(text=(self.tr("browser_selected").format(
+            name=self.profile["name"], driver=self.profile["driver_kind"])
+            if self.profile else self.tr("browser_missing")))
         self.photo_status.configure(text=self.tr("photo_ready" if self.photo else "no_photo"))
         for key, state in self.states.items():
             style = {"success": "Success.TButton", "partial": "Partial.TButton", "failed": "Failed.TButton"}.get(state, "TButton")
@@ -330,6 +327,24 @@ class AttendanceApp:
         for widget in self.inputs + self.actions:
             widget.configure(state="disabled" if value or self.closing else
                              "readonly" if widget is self.semester_dropdown else "normal")
+
+    def open_browser_settings(self):
+        if self.busy or self.closing:
+            return
+        if self.settings_dialog and self.settings_dialog.window.winfo_exists():
+            self.settings_dialog.window.lift()
+            return
+        self.settings_dialog = BrowserSettingsDialog(
+            self.root, self.apply_profile, chinese=self.language.get() == "中文")
+
+    def apply_profile(self, profile):
+        if self.busy or self.closing:
+            return False
+        if self.session_open and not messagebox.askyesno(
+                self.tr("title"), self.tr("switch_browser_confirm"), parent=self.root):
+            return False
+        self.submit("activate_profile", (profile,))
+        return True
 
     def refresh_semester(self):
         language_index = 2 if self.language.get() == "中文" else 1
@@ -375,34 +390,22 @@ class AttendanceApp:
         self.states = dict.fromkeys(self.states, "missing")
         self.refresh()
 
-    def locate_browser(self):
-        """Open the native picker on the Tk main thread, not in the Playwright worker."""
-        if self.busy or self.closing:
-            return
-        executable_path = filedialog.askopenfilename(
-            parent=self.root,
-            title=self.tr("locate_browser"),
-            filetypes=[("Executable files", "*.exe"), ("All files", "*.*")],
-        )
-        if executable_path:
-            self.submit("select_browser", (executable_path,))
-
     def submit(self, task, args=()):
         if self.busy:
             return
+        if self.closing:
+            return
+        if task == "open" and not self.profile and not self.demo:
+            self.open_browser_settings()
+            return
         if task in ("open", "end"):
             self.clear_student()
-        if task in ("check_browser", "select_browser"):
-            self.browser_previous_state = self.browser_state
-            self.browser_state = "checking"
-            self.refresh()
         self.set_busy(True)
         if task in self.states:
             self.states[task] = "working"
             self.results.pop(task, None)
             self.refresh()
-        self.status.configure(text=self.tr("browser_checking").format(name=self.browser_name)
-                              if task in ("check_browser", "select_browser") else self.tr("working"))
+        self.status.configure(text=self.tr("working"))
         self.commands.put((task, args))
 
     def retrieve(self, task):
@@ -471,13 +474,15 @@ class AttendanceApp:
             verdict = ("仅显示受控浏览器已观察到的事件；不发送新请求，也不判定登录是否成功。" if chinese else
                        "Shows events already observed in the controlled browser. No new request or login verdict.")
             responses = "\n".join(result["request_responses"]) or ("无" if chinese else "None observed")
-            pending = "\n".join(result["pending_requests"]) or ("无" if chinese else "None observed")
-            issues = "\n".join(result["network_issues"]) or ("无" if chinese else "None observed")
+            resources = "\n".join(f"{r['host']} ({r['kind']}): {r['duration']}ms"
+                                   for r in result["resources"]) or ("无" if chinese else "None observed")
             message = (f"{verdict}\n\n"
                        f"{'当前页面域名' if chinese else 'Visible page host'}: {result['page_host']}\n"
                        f"{'最近响应（仅域名、类型和状态）' if chinese else 'Recent responses (host/type/status only)'}:\n{responses}\n"
-                       f"{'进行中的请求（仅域名、类型和秒数）' if chinese else 'Pending requests (host/type/seconds only)'}:\n{pending}\n"
-                       f"{'网络错误（仅域名和状态）' if chinese else 'Network issues (host/status only)'}:\n{issues}\n\n"
+                       f"{'页面状态' if chinese else 'Document state'}: {result['page_state']}\n"
+                       f"{'最近完成的资源' if chinese else 'Recently completed resources'}:\n{resources}\n"
+                       + ("无法由这些信息判断登录请求是否仍在等待。\n\n" if chinese else
+                          "This does not identify requests still pending or establish why login stalls.\n\n")
                        + ("不包含用户名、密码、网址参数或页面内容。" if chinese else
                           "No username, password, URL parameters or page content is included."))
         messagebox.showinfo(self.tr("login_diagnostic"), message, parent=self.root)
@@ -591,30 +596,28 @@ class AttendanceApp:
             if kind == "progress":
                 self.status.configure(text=f"{self.tr('working')} {result[0]} / {result[1]}")
                 continue
+            if kind == "session_closed":
+                self.session_open = False
+                self.clear_student()
+                continue
             self.set_busy(False)
             if kind == "error":
                 self.errors[task] = result
                 if task in self.states:
                     self.states[task] = "failed"
                 self.status.configure(text=result)
-                if task == "check_browser":
-                    self.browser_state = "unavailable"
-                    self.browser_version = ""
-                    self.status.configure(text=self.tr("browser_unavailable").format(name=self.browser_name))
-                    if not self.browser_prompted and not self.closing:
-                        self.browser_prompted = True
-                        self.root.after_idle(self.locate_browser)
-                elif task == "select_browser":
-                    # Failed selection does not replace a working configuration.
-                    self.browser_state = self.browser_previous_state
+                if task == "open":
+                    self.session_open = False
             else:
-                if task in ("check_browser", "select_browser"):
-                    self.browser_state = "available"
-                    self.browser_version = result["version"]
-                    self.browser_name = result["name"]
+                if task == "activate_profile":
+                    self.profile = result
                     self.errors.pop(task, None)
-                    if task == "select_browser":
-                        self.clear_student()
+                    self.session_open = False
+                    self.clear_student()
+                if task == "open":
+                    self.session_open = True
+                elif task == "end":
+                    self.session_open = False
                 if task in self.states:
                     self.results[task] = result
                     self.states[task] = "success"
@@ -634,7 +637,8 @@ class AttendanceApp:
                     self.show_login_diagnostic(result)
                 if task not in ("pdf", "browser_print"):
                     self.status.configure(text=self.tr("login_checked" if task == "login_diagnostic" else
-                                                       "browser_check_passed" if task in ("check_browser", "select_browser") else
+                                                       "browser_selected_feedback" if task == "activate_profile" else
+                                                       "navigation_timeout" if task == "open" and result.get("navigation_timeout") else
                                                        "signed" if task == "open" else "ready" if task == "end" else "completed"))
             self.refresh()
         self.root.after(100, self.poll)
@@ -655,6 +659,8 @@ class AttendanceApp:
         if self.closing:
             return
         self.closing = True
+        if self.settings_dialog and self.settings_dialog.window.winfo_exists():
+            self.settings_dialog.window.destroy()
         if self.photo_dialog and self.photo_dialog.window.winfo_exists():
             self.photo_dialog.cancel()
         self.hide_tooltip()
@@ -665,16 +671,14 @@ class AttendanceApp:
 
 def main():
     parser = argparse.ArgumentParser()
-    browsers = parser.add_mutually_exclusive_group()
-    browsers.add_argument("--system-chrome", action="store_true", help="Use installed Chrome (legacy alias)")
-    browsers.add_argument("--browser", choices=("msedge", "chrome"), help="Installed browser; default Edge on Windows, Chrome on macOS")
+    parser.add_argument("--self-test", metavar="REPORT", help="Offline frozen-runtime check; no browser or downloads")
     parser.add_argument("--demo", action="store_true", help="Fictitious offline UI test data")
-    parser.add_argument("--photo-popup", action="store_true", help="Show photo popup immediately for manual testing")
     args = parser.parse_args()
+    if args.self_test:
+        from self_test import run_self_test
+        raise SystemExit(run_self_test(args.self_test))
     root = create_root()
-    app = AttendanceApp(root, "chrome" if args.system_chrome else args.browser or default_channel(), args.demo)
-    if args.photo_popup:
-        root.after(250, app.add_photo)
+    AttendanceApp(root, demo=args.demo)
     root.mainloop()
 
 

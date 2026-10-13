@@ -136,8 +136,8 @@ class ProductionTests(unittest.TestCase):
             book_html(data)
 
     def test_retrieval_scans_every_week_including_empty_weeks(self):
-        session = PortalSession(Mock(), 'chrome')
-        session.context = Mock()
+        session = PortalSession()
+        session.client = Mock()
         session.student_id = 'DEMO001'
         session.identity = Mock()
         with patch('service.read_http', side_effect=demo_weeks(2026, 11, 1, 3)) as fetch, \

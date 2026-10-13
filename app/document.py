@@ -6,7 +6,7 @@ The archived LaTeX draft is not a runtime dependency.
 from __future__ import annotations
 
 from datetime import date
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from html import escape
 import os
 from pathlib import Path
@@ -160,38 +160,66 @@ def save_browser_document(data, path):
     return webbrowser.open(Path(path).resolve().as_uri())
 
 
-def print_pdf(playwright, channel, data, path):
-    html = book_html(data)
+def print_pdf(profile, data, path):
+    html = browser_html(data)
     from browser_config import launch_browser
-    browser = launch_browser(playwright, channel, headless=True)
-    try:
-        page = browser.new_page()
-        page.emulate_media(media="print")
-        # Offline document only; neither portal resources nor external URLs allowed.
-        page.route("**/*", lambda route: route.abort())
-        page.set_content(html, wait_until="load")
-        page.evaluate("document.fonts.ready")
-        if not page.evaluate("Array.from(document.fonts).every(f => f.status === 'loaded')"):
-            raise ValueError("Bundled Chinese font did not load. PDF export was stopped.")
-        if not page.evaluate("Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)"):
-            raise ValueError("Photo did not render / 照片未能正确渲染。")
-        layout = page.evaluate("window.fitAttendanceBook()")
-        overflow = [item for item in layout if item['overflow']]
-        if overflow:
-            affected = "; ".join(f"Page / 页 {item['page']}: {item['title']}" for item in overflow)
-            raise ValueError("Content exceeds printable margins / 内容超出打印边距。 " + affected + ". Text was not clipped; adjust the layout / 未裁剪文字，请调整布局。")
-        pdf = page.pdf(prefer_css_page_size=True, print_background=True)
-        # Render completely before replacing a user-selected destination.
-        destination = Path(path)
-        staging = None
+    if not profile:
+        raise ValueError("Select a browser profile first / 请先选择浏览器配置。")
+    if profile["driver_kind"] == "safaridriver":
+        raise ValueError("Safari does not support unattended PDF export. Use browser / print / Safari请使用浏览器打印。")
+    with tempfile.TemporaryDirectory(prefix="attendance-render-") as folder:
+        source = Path(folder) / "attendance.html"
+        source.write_text(html, encoding="utf-8")
+        browser = launch_browser(profile, headless=True, profile_dir=str(Path(folder) / "profile"))
         try:
-            with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=".pdf", delete=False) as stream:
-                staging = Path(stream.name)
-                stream.write(pdf)
-            os.replace(staging, destination)
-            staging = None
+            browser.set_page_load_timeout(30)
+            browser.get(source.as_uri())
+            chromium = profile["driver_kind"] in ("chromedriver", "msedgedriver")
+            if chromium:
+                browser.execute_cdp_cmd("Emulation.setEmulatedMedia", {"media": "print"})
+            browser.execute_async_script("document.fonts.ready.then(() => arguments[0](true));")
+            if not browser.execute_script("return Array.from(document.fonts).every(f => f.status === 'loaded')"):
+                raise ValueError("Bundled Chinese font did not load. PDF export was stopped.")
+            decoded = browser.execute_async_script("""
+                const done = arguments[arguments.length - 1];
+                Promise.all(Array.from(document.images, image => image.decode()))
+                  .then(() => done(true), () => done(false));
+            """)
+            if not decoded:
+                raise ValueError("Photo did not render / 照片未能正确渲染。")
+            if not browser.execute_script("return Array.from(document.images).every(i => i.complete && i.naturalWidth > 0)"):
+                raise ValueError("Photo did not render / 照片未能正确渲染。")
+            layout = browser.execute_script("return window.fitAttendanceBook()")
+            overflow = [item for item in layout if item['overflow']]
+            if overflow:
+                affected = "; ".join(f"Page / 页 {item['page']}: {item['title']}" for item in overflow)
+                raise ValueError("Content exceeds printable margins / 内容超出打印边距。 " + affected + ". Text was not clipped; adjust the layout / 未裁剪文字，请调整布局。")
+            if chromium:
+                encoded = browser.execute_cdp_cmd("Page.printToPDF", {
+                    "preferCSSPageSize": True, "printBackground": True,
+                    "landscape": True, "paperWidth": 11.6929134, "paperHeight": 8.2677165,
+                    "marginTop": 0, "marginBottom": 0, "marginLeft": 0, "marginRight": 0})["data"]
+            else:
+                from selenium.webdriver.common.print_page_options import PrintOptions
+                options = PrintOptions()
+                options.orientation = "landscape"
+                options.page_width, options.page_height = 21.0, 29.7
+                options.margin_top = options.margin_bottom = options.margin_left = options.margin_right = 0
+                options.background, options.shrink_to_fit = True, False
+                encoded = browser.print_page(options)
+            pdf = b64decode(encoded, validate=True)
         finally:
-            if staging is not None:
-                staging.unlink(missing_ok=True)
+            browser.quit()
+    if not pdf.startswith(b"%PDF-"):
+        raise ValueError("Browser did not return a PDF / 浏览器未返回PDF。")
+    destination = Path(path)
+    staging = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=".pdf", delete=False) as stream:
+            staging = Path(stream.name)
+            stream.write(pdf)
+        os.replace(staging, destination)
+        staging = None
     finally:
-        browser.close()
+        if staging is not None:
+            staging.unlink(missing_ok=True)

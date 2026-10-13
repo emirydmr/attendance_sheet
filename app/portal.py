@@ -189,12 +189,48 @@ def assert_match(actual, baseline):
         raise PortalError("Response differs from the visible timetable baseline.")
 
 
-def read_http(context, selection):
-    response = context.request.get(selection.url, timeout=25000)
-    try:
-        if response.status != 200 or urlparse(response.url).hostname != "yjs.chd.edu.cn":
-            raise PortalError("HTTP retrieval was redirected or rejected by the portal.")
-        return parse_timetable(response.text(), selection)
-    finally:
-        response.dispose()
+class BrowserPortalClient:
+    """Read same-origin pages using the browser's actual authenticated session.
+
+    HttpOnly cookies and renewed cookies stay in the browser, never in Python.
+    Only the already-known portal pages are requested; this is not an API probe.
+    """
+    def __init__(self, driver, origin=BASE):
+        self.driver = driver
+        self.origin = origin.rstrip("/")
+        self.observations = []
+
+    def get(self, url, timeout=25000):
+        expected = urlparse(self.origin)
+        target = urlparse(url)
+        if (target.scheme, target.netloc) != (expected.scheme, expected.netloc):
+            raise PortalError("Only same-origin portal requests are allowed / 仅允许访问本系统页面。")
+        current = urlparse(self.driver.current_url)
+        if (current.scheme, current.netloc) != (expected.scheme, expected.netloc):
+            raise PortalError("Finish signing in before retrieving data / 请先完成登录。")
+        result = self.driver.execute_async_script("""
+            const [url, timeout, done] = arguments;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
+            fetch(url, {credentials: 'same-origin', cache: 'no-store',
+                        redirect: 'follow', signal: controller.signal})
+              .then(async r => ({status: r.status, url: r.url, text: await r.text()}))
+              .then(done, () => done({error: 'request_failed'}))
+              .finally(() => clearTimeout(timer));
+        """, url, timeout)
+        if not isinstance(result, dict) or result.get("error"):
+            self.observations.append("Portal fetch failed or timed out")
+            self.observations = self.observations[-12:]
+            raise PortalError("Portal request failed or timed out. Check the login browser / 请求失败或超时，请检查登录浏览器。")
+        final = urlparse(result.get("url", ""))
+        status = result.get("status")
+        self.observations.append(f"{final.hostname or 'unknown'}: HTTP {status}")
+        self.observations = self.observations[-12:]
+        if (final.scheme, final.netloc) != (expected.scheme, expected.netloc) or status != 200:
+            raise PortalError("HTTP retrieval was redirected or rejected by the portal / 登录失效或请求被拒绝。")
+        return result["text"]
+
+
+def read_http(client, selection):
+    return parse_timetable(client.get(selection.url), selection)
 
