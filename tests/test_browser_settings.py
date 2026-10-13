@@ -420,7 +420,13 @@ class BrowserSettingsTkTests(unittest.TestCase):
                             dialog.destroy()
                     self.assertEqual(detector.call_count, 2)
                     self.assertEqual(inventory.call_count, 2)
-                    resolver.assert_not_called()
+                    # Readiness checks may run asynchronously while the
+                    # dialog is open. They must never trigger downloads.
+                    for call in resolver.call_args_list:
+                        self.assertEqual(len(call.args), 1)
+                        self.assertIs(
+                            call.kwargs.get("allow_download"), False
+                        )
         finally:
             root.destroy()
 
