@@ -48,6 +48,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._busy = False
         self._queue: queue.Queue = queue.Queue()
         self._operation = 0
+        self._pending_jobs = []
         self._generation = 0
         self._after_id = None
         self._suspend_traces = True
@@ -56,6 +57,8 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._detected: list[dict] = []
         self._working: dict = {}
         self._loaded_id: str | None = None
+        self._advanced_visible = False
+        self._suggested_name = ""
 
         initial_error = None
         try:
@@ -66,8 +69,8 @@ class BrowserSettingsDialog(tk.Toplevel):
             initial_error = exc
 
         self.title(self._text("Browser settings", "浏览器设置"))
-        self.minsize(780, 680)
-        self.geometry("860x680")
+        self.minsize(780, 540)
+        self.geometry("860x560")
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self._vars = {key: tk.StringVar(self, "") for key in _PROFILE_FIELDS}
@@ -78,8 +81,8 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._status_var = tk.StringVar(
             self,
             self._text(
-                "Choose a browser and its executable. Startup never downloads a driver or browser.",
-                "请选择浏览器及其程序路径。启动应用时不会下载驱动或浏览器。",
+                "Choose an installed browser. Startup never downloads a driver or browser.",
+                "请选择已安装的浏览器。启动应用时不会下载驱动或浏览器。",
             ),
         )
         self._build()
@@ -95,6 +98,7 @@ class BrowserSettingsDialog(tk.Toplevel):
             # A blank browser is intentional: first-run setup must be explicit.
             self._new_profile(initial=True)
         self._poll()
+        self._detect()
         self._refresh_drivers()
         if initial_error is not None:
             self.after_idle(lambda: self._show_error(initial_error))
@@ -142,16 +146,11 @@ class BrowserSettingsDialog(tk.Toplevel):
     def _build_profiles(self, parent):
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(3, weight=1)
-
         ttk.Label(
-            parent,
-            text=self._text(
-                "Named profiles (the active profile is changed only by Apply)",
-                "命名配置（活动配置仅可通过“应用”更改）",
-            ),
+            parent, text=self._text("Saved profiles", "已保存配置"),
         ).grid(row=0, column=0, sticky="w", pady=(0, 5))
         self.profile_list = ttk.Treeview(
-            parent, columns=("browser", "state"), show="tree headings", height=5,
+            parent, columns=("browser", "state"), show="tree headings", height=4,
             selectmode="browse",
         )
         self.profile_list.heading("#0", text=self._text("Name", "名称"))
@@ -182,66 +181,59 @@ class BrowserSettingsDialog(tk.Toplevel):
         form = ttk.LabelFrame(parent, text=self._text("Profile details", "配置详情"), padding=10)
         form.grid(row=3, column=0, sticky="nsew")
         form.columnconfigure(1, weight=1)
-
         ttk.Label(form, text=self._text("Profile name", "配置名称")).grid(row=0, column=0, sticky="w", pady=4)
         self._name_entry = self._track_widget(ttk.Entry(form, textvariable=self._vars["name"]))
         self._name_entry.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(10, 0), pady=4)
 
-        ttk.Label(form, text=self._text("Browser", "浏览器")).grid(row=1, column=0, sticky="w", pady=4)
-        self._browser_combo = self._track_widget(
-            ttk.Combobox(
-                form, textvariable=self._browser_label,
-                values=tuple(BROWSER_NAMES[key] for key in BROWSER_NAMES), state="readonly",
-            ),
-            "readonly",
-        )
-        self._browser_combo.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(10, 0), pady=4)
-        self._browser_combo.bind("<<ComboboxSelected>>", self._browser_selected)
-
-        ttk.Label(form, text=self._text("Installed browser", "已安装浏览器")).grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(form, text=self._text("Installed browser", "已安装浏览器")).grid(row=1, column=0, sticky="w", pady=4)
         self._detected_combo = self._track_widget(
             ttk.Combobox(form, textvariable=self._detected_label, state="readonly"), "readonly"
         )
-        self._detected_combo.grid(row=2, column=1, sticky="ew", padx=(10, 6), pady=4)
+        self._detected_combo.grid(row=1, column=1, sticky="ew", padx=(10, 6), pady=4)
         self._detected_combo.bind("<<ComboboxSelected>>", self._detected_selected)
         self._detect_button = self._track_widget(
             ttk.Button(form, text=self._text("Detect", "检测"), command=self._detect)
         )
-        self._detect_button.grid(row=2, column=2, sticky="ew", pady=4)
-
-        ttk.Label(form, text=self._text("Executable", "浏览器程序")).grid(row=3, column=0, sticky="w", pady=4)
-        self._executable_entry = self._track_widget(ttk.Entry(form, textvariable=self._vars["executable"]))
-        self._executable_entry.grid(row=3, column=1, sticky="ew", padx=(10, 6), pady=4)
-        self._executable_button = self._track_widget(
-            ttk.Button(form, text=self._text("Browse…", "浏览…"), command=self._browse_executable)
+        self._detect_button.grid(row=1, column=2, sticky="ew", pady=4)
+        self._advanced_button = self._track_widget(
+            ttk.Button(form, text=self._text("Advanced settings…", "高级设置…"), command=self._toggle_advanced)
         )
-        self._executable_button.grid(row=3, column=2, sticky="ew", pady=4)
+        self._advanced_button.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
-        advanced = ttk.LabelFrame(form, text=self._text("Advanced driver settings", "高级驱动设置"), padding=8)
-        advanced.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 4))
+        advanced = self._advanced_frame = ttk.LabelFrame(
+            form, text=self._text("Manual browser and driver setup", "手动浏览器及驱动设置"), padding=8,
+        )
+        advanced.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 4))
         advanced.columnconfigure(1, weight=1)
+        ttk.Label(advanced, text=self._text("Browser family", "浏览器类型")).grid(row=0, column=0, sticky="w", pady=4)
+        self._browser_combo = self._track_widget(
+            ttk.Combobox(advanced, textvariable=self._browser_label,
+                         values=tuple(BROWSER_NAMES.values()), state="readonly"), "readonly",
+        )
+        self._browser_combo.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(10, 0), pady=4)
+        self._browser_combo.bind("<<ComboboxSelected>>", self._browser_selected)
+        ttk.Label(advanced, text=self._text("Executable", "浏览器程序")).grid(row=1, column=0, sticky="w", pady=4)
+        self._executable_entry = self._track_widget(ttk.Entry(advanced, textvariable=self._vars["executable"]))
+        self._executable_entry.grid(row=1, column=1, sticky="ew", padx=(10, 6), pady=4)
+        self._executable_button = self._track_widget(
+            ttk.Button(advanced, text=self._text("Browse…", "浏览…"), command=self._browse_executable)
+        )
+        self._executable_button.grid(row=1, column=2, sticky="ew", pady=4)
         self._override_check = self._track_widget(
-            ttk.Checkbutton(
-                advanced, text=self._text("Override the browser's default driver", "覆盖浏览器默认驱动"),
-                variable=self._override_var, command=self._override_changed,
-            )
+            ttk.Checkbutton(advanced, text=self._text("Override the browser's default driver", "覆盖浏览器默认驱动"),
+                            variable=self._override_var, command=self._override_changed)
         )
-        self._override_check.grid(row=0, column=0, columnspan=3, sticky="w")
-
-        ttk.Label(advanced, text=self._text("Driver family", "驱动类型")).grid(row=1, column=0, sticky="w", pady=4)
+        self._override_check.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(advanced, text=self._text("Driver family", "驱动类型")).grid(row=3, column=0, sticky="w", pady=4)
         self._driver_combo = self._track_widget(
-            ttk.Combobox(
-                advanced, textvariable=self._driver_label,
-                values=tuple(DRIVER_NAMES[key] for key in DRIVER_NAMES), state="readonly",
-            ),
-            "readonly",
+            ttk.Combobox(advanced, textvariable=self._driver_label,
+                         values=tuple(DRIVER_NAMES.values()), state="readonly"), "readonly",
         )
-        self._driver_combo.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(10, 0), pady=4)
+        self._driver_combo.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(10, 0), pady=4)
         self._driver_combo.bind("<<ComboboxSelected>>", self._driver_selected)
-
-        ttk.Label(advanced, text=self._text("Driver mode", "驱动模式")).grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(advanced, text=self._text("Driver mode", "驱动模式")).grid(row=4, column=0, sticky="w", pady=4)
         mode_box = ttk.Frame(advanced)
-        mode_box.grid(row=2, column=1, columnspan=2, sticky="w", padx=(10, 0), pady=4)
+        mode_box.grid(row=4, column=1, columnspan=2, sticky="w", padx=(10, 0), pady=4)
         self._auto_radio = self._track_widget(
             ttk.Radiobutton(mode_box, text=self._text("Automatic", "自动"), value="auto",
                             variable=self._vars["driver_mode"], command=self._mode_changed)
@@ -252,17 +244,17 @@ class BrowserSettingsDialog(tk.Toplevel):
                             variable=self._vars["driver_mode"], command=self._mode_changed)
         )
         self._manual_radio.pack(side="left", padx=(12, 0))
-
-        ttk.Label(advanced, text=self._text("Driver path", "驱动路径")).grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(advanced, text=self._text("Driver path", "驱动路径")).grid(row=5, column=0, sticky="w", pady=4)
         self._driver_path_entry = self._track_widget(ttk.Entry(advanced, textvariable=self._vars["driver_path"]))
-        self._driver_path_entry.grid(row=3, column=1, sticky="ew", padx=(10, 6), pady=4)
+        self._driver_path_entry.grid(row=5, column=1, sticky="ew", padx=(10, 6), pady=4)
         self._driver_browse_button = self._track_widget(
             ttk.Button(advanced, text=self._text("Browse…", "浏览…"), command=self._browse_driver)
         )
-        self._driver_browse_button.grid(row=3, column=2, sticky="ew", pady=4)
+        self._driver_browse_button.grid(row=5, column=2, sticky="ew", pady=4)
+        advanced.grid_remove()
 
         action_bar = ttk.Frame(form)
-        action_bar.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        action_bar.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         self._download_button = self._track_widget(
             ttk.Button(action_bar, text=self._text("Download matching driver", "下载匹配的驱动"), command=self._download)
         )
@@ -271,6 +263,22 @@ class BrowserSettingsDialog(tk.Toplevel):
             ttk.Button(action_bar, text=self._text("Apply — get matching driver if needed", "应用 — 按需获取匹配驱动"), command=self._apply)
         )
         self._apply_button.pack(side="right")
+
+    def _toggle_advanced(self):
+        self._advanced_visible = not self._advanced_visible
+        if self._advanced_visible:
+            self._advanced_frame.grid()
+        else:
+            self._advanced_frame.grid_remove()
+        self._advanced_button.configure(text=self._text(
+            "Hide advanced settings" if self._advanced_visible else "Advanced settings…",
+            "收起高级设置" if self._advanced_visible else "高级设置…",
+        ))
+        self.update_idletasks()
+        minimum_height = max(540, self.winfo_reqheight())
+        self.minsize(780, minimum_height)
+        if self.winfo_height() < minimum_height:
+            self.geometry(f"{max(780, self.winfo_width())}x{minimum_height}")
 
     def _build_drivers(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -327,6 +335,7 @@ class BrowserSettingsDialog(tk.Toplevel):
     def _editor_changed(self, *_args):
         if not self._suspend_traces:
             self._generation += 1
+            self._sync_detected_selection()
 
     def _set_vars(self, values: dict):
         self._suspend_traces = True
@@ -343,6 +352,32 @@ class BrowserSettingsDialog(tk.Toplevel):
             self._suspend_traces = False
         self._generation += 1
         self._update_advanced_states()
+        self._sync_detected_selection()
+
+    @staticmethod
+    def _same_executable(left, right):
+        if not left or not right:
+            return False
+        left, right = Path(left).expanduser().resolve(), Path(right).expanduser().resolve()
+        if left == right:
+            return True
+        # Inactive profiles may retain a .app path while discovery returns its
+        # executable. Match the same bundle without running or probing it.
+        return (left.suffix.lower() == ".app" and left / "Contents" / "MacOS" in right.parents
+                or right.suffix.lower() == ".app" and right / "Contents" / "MacOS" in left.parents)
+
+    def _sync_detected_selection(self):
+        browser = self._vars["browser"].get()
+        executable = self._vars["executable"].get()
+        for index, row in enumerate(self._detected):
+            if row.get("browser") == browser and self._same_executable(executable, row.get("executable")):
+                self._detected_combo.current(index)
+                return
+        if executable:
+            name = BROWSER_NAMES.get(browser, self._text("Manual setup", "手动设置"))
+            self._detected_label.set(self._text(f"{name} — manual / saved selection", f"{name} — 手动或已保存选择"))
+        else:
+            self._detected_label.set("")
 
     def _snapshot_profile(self) -> dict:
         """Copy every Tk value; call only on the UI thread."""
@@ -380,12 +415,14 @@ class BrowserSettingsDialog(tk.Toplevel):
 
     def _load_profile(self, profile: dict):
         self._working = dict(profile)
+        self._suggested_name = ""
         self._loaded_id = str(profile.get("id") or "") or None
         self._set_vars(profile)
         self._select_profile_row(self._loaded_id)
 
     def _new_profile(self, _event=None, initial=False):
         self._working = {"id": str(uuid.uuid4())}
+        self._suggested_name = ""
         self._loaded_id = None
         self._set_vars({
             "name": "", "browser": "", "executable": "", "driver_kind": "",
@@ -541,13 +578,28 @@ class BrowserSettingsDialog(tk.Toplevel):
             return
         detected = self._detected[index]
         browser = str(detected.get("browser") or "")
-        self._vars["browser"].set(browser)
-        self._browser_label.set(BROWSER_NAMES.get(browser, str(detected.get("name") or browser)))
-        self._vars["executable"].set(str(detected.get("executable") or ""))
-        if browser and not self._override_var.get():
+        if browser not in BROWSER_NAMES:
+            return
+        self._suspend_traces = True
+        try:
+            self._vars["browser"].set(browser)
+            self._browser_label.set(BROWSER_NAMES[browser])
+            self._vars["executable"].set(str(detected.get("executable") or ""))
             kind = default_driver_kind(browser)
             self._vars["driver_kind"].set(kind)
-            self._driver_label.set(DRIVER_NAMES.get(kind, ""))
+            self._driver_label.set(DRIVER_NAMES[kind])
+            self._vars["driver_mode"].set("auto")
+            self._vars["driver_path"].set("")
+            self._override_var.set(False)
+            name = self._vars["name"].get().strip()
+            if not name or (not self._loaded_id and name == self._suggested_name):
+                self._vars["name"].set(BROWSER_NAMES[browser])
+                self._suggested_name = BROWSER_NAMES[browser]
+        finally:
+            self._suspend_traces = False
+        self._generation += 1
+        self._update_advanced_states()
+        self._sync_detected_selection()
 
     def _use_cached_driver(self):
         selection = self.driver_list.selection()
@@ -584,7 +636,16 @@ class BrowserSettingsDialog(tk.Toplevel):
             self._status_var.set(label)
 
     def _start_worker(self, kind, work, *, stale_sensitive=False, status=""):
-        if self._busy or self._closed:
+        if self._closed:
+            return False
+        # Discovery and inventory share one worker slot. Queue both initial
+        # jobs, and coalesce refreshes instead of dropping whichever starts last.
+        if kind in ("detect", "library"):
+            self._pending_jobs = [job for job in self._pending_jobs if job[0] != kind]
+            if self._busy:
+                self._pending_jobs.append((kind, work, {"stale_sensitive": stale_sensitive, "status": status}))
+                return True
+        elif self._busy:
             return False
         self._operation += 1
         operation = self._operation
@@ -595,6 +656,11 @@ class BrowserSettingsDialog(tk.Toplevel):
             name=f"browser-settings-{kind}", daemon=True,
         ).start()
         return True
+
+    def _run_next_worker(self):
+        if not self._closed and not self._busy and self._pending_jobs:
+            kind, work, options = self._pending_jobs.pop(0)
+            self._start_worker(kind, work, **options)
 
     def _worker_entry(self, operation, generation, kind, work):
         try:
@@ -677,6 +743,12 @@ class BrowserSettingsDialog(tk.Toplevel):
             self._after_id = self.after(self.POLL_MS, self._poll)
 
     def _handle_worker_result(self, item):
+        try:
+            self._accept_worker_result(item)
+        finally:
+            self._run_next_worker()
+
+    def _accept_worker_result(self, item):
         operation, generation, kind, ok, payload = item
         if self._closed or operation != self._operation:
             return
@@ -694,11 +766,13 @@ class BrowserSettingsDialog(tk.Toplevel):
                 name = row.get("name") or BROWSER_NAMES.get(row.get("browser"), row.get("browser", ""))
                 version = str(row.get("browser_version") or row.get("version") or "").strip()
                 labels.append(f"{name} — {version}" if version else str(name))
+            labels = [f"{label} — {row.get('executable', '')}" if labels.count(label) > 1 else label
+                      for label, row in zip(labels, self._detected)]
             self._detected_combo.configure(values=tuple(labels))
-            self._detected_label.set("")
+            self._sync_detected_selection()
             self._status_var.set(self._text(
-                f"Found {len(labels)} browser(s); choose one from the list.",
-                f"检测到 {len(labels)} 个浏览器；请从列表中选择。",
+                f"Found {len(labels)} browser(s). Choose one, or use Advanced settings for manual setup.",
+                f"检测到 {len(labels)} 个浏览器。请选择一个，或通过高级设置手动配置。",
             ))
         elif kind == "library":
             self._render_driver_library(list(payload or []))
@@ -742,6 +816,7 @@ class BrowserSettingsDialog(tk.Toplevel):
             self._suspend_traces = False
         self._generation += 1
         self._update_advanced_states()
+        self._sync_detected_selection()
 
     def _render_driver_library(self, rows):
         self.driver_list.delete(*self.driver_list.get_children())
@@ -775,6 +850,7 @@ class BrowserSettingsDialog(tk.Toplevel):
             return
         self._closed = True
         self._operation += 1
+        self._pending_jobs.clear()
         if self._after_id is not None:
             try:
                 self.after_cancel(self._after_id)
