@@ -57,15 +57,22 @@ browser in demo mode.
 On first launch, **Browser Settings** opens automatically when no profile is
 active. Create a named profile and select an installed browser; the app detects
 its executable and chooses the corresponding Selenium driver kind. Click
-**Apply** to explicitly allow matching-driver acquisition when needed and use
-the profile. There is no operating-system default browser choice or browser
-launch check at startup.
+**Download matching driver** if no compatible driver is installed, then click
+**Apply** to use the profile. Apply stays disabled until the browser and driver
+match; it never downloads anything. There is no operating-system default browser
+choice or browser launch check at startup.
 
 A saved profile is a browser/driver configuration, not a student's saved login.
 Keep multiple named configurations and explicitly choose the active one in
 Browser Settings. Advanced settings allow executable, driver-kind and manual
-driver-path overrides. The dialog's driver library lists driver kinds and cached
-installations, with download/import options for setup or manual use.
+driver-path overrides. The dialog's driver library lists installed driver
+versions. Different versions can coexist after browser updates. **App cache**
+is downloaded by AttendanceBook, **App import** was copied into its storage by
+the user, **Shared Selenium** is a cache outside AttendanceBook that other
+applications may use, and **System** includes macOS's built-in SafariDriver.
+Only app-owned driver versions can be deleted in the dialog; a driver referenced
+by a saved profile must be unassigned first. Deleting one version does not
+remove other versions or the browser itself.
 
 | Installed browser | Driver | Attendance-book export |
 | --- | --- | --- |
@@ -79,7 +86,10 @@ For Safari, enable **Safari → Settings → Developer → Allow remote automati
 before use; the Developer menu may first need enabling in Safari settings.
 Its one-time system setup may require administrator approval. Driver downloads
 require network access. For offline or restricted machines, import a compatible
-driver manually. A browser update may require a new matching driver.
+driver manually. A browser update may require a new matching driver. The explicit
+Download action shows an activity window and elapsed time; Selenium Manager does
+not provide reliable byte-by-byte progress to this interface. Opening a browser
+does not download a driver.
 
 Configuration and cached drivers are stored outside the app and repository:
 
@@ -178,6 +188,20 @@ require a separate local build
 with an Intel Python installation. No repository secrets are needed; the
 workflow uses GitHub's built-in token.
 
+Each push to `main` starts an Actions build; completed runs provide artifacts
+retained for 14 days, but not a permanent Release. A newer push may cancel an
+unfinished run. To publish a chosen, tested commit as a
+Release, tag it and push the tag; for example:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Use the next unused version number and check the Actions run before sharing the
+Release link. Tags point to a specific commit, so a Release does not silently
+change when later commits are pushed.
+
 CI runs a local browser, cookie and PDF smoke check against loopback fixtures;
 it does not sign in to the university portal. For an opt-in, student-present
 check on a target machine, use a saved browser profile ID from the app's
@@ -185,7 +209,7 @@ check on a target machine, use a saved browser profile ID from the app's
 temporary profile required by this check) and run:
 
 ```sh
-python tests/live_portal_smoke.py --run-live --profile-id PROFILE_ID --year 2026 --term 11 --week 1
+python tests/manual/live_portal_smoke.py --run-live --profile-id PROFILE_ID --year 2026 --term 11 --week 1
 ```
 
 The script requires an interactive confirmation, opens a fresh temporary
@@ -199,9 +223,11 @@ An optional portable source archive can be generated with
 `python build/export_source.py` using a prepared environment. Its output is
 `build/source/AttendanceBook-source.zip`.
 The icon generator (`build/generate_icons.py`) and layout/omission QA scripts
-(`tests/check_layout.py`, `tests/check_omit_empty.py`) are development tools,
+([tests/manual/check_layout.py](tests/manual/check_layout.py),
+[tests/manual/check_omit_empty.py](tests/manual/check_omit_empty.py)) are development tools,
 not alternative release builders. They use an explicitly configured local
-browser and do not download one.
+browser and do not download one. The [test map](tests/README.md) separates
+routine checks from opt-in browser and live-portal checks.
 
 ## Limitations and troubleshooting
 

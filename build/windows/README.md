@@ -54,7 +54,8 @@ Recipients need an installed browser, but no separate Python installation or
 administrator installation for normal app use. **Browser Settings** opens
 automatically when no profile is active. Create a named profile and select an
 installed browser; the app detects its executable and chooses the driver kind.
-Click **Apply** to explicitly allow matching-driver acquisition when needed.
+If a matching driver is missing, click **Download matching driver** first;
+**Apply** uses only installed drivers and stays disabled until one matches.
 Configuration and drivers live in `%LOCALAPPDATA%\AttendanceBook`, outside the
 EXE. Advanced manual
 overrides and the driver library are in the same dialog. Builds do not assign a

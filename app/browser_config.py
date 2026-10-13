@@ -360,9 +360,8 @@ def _check_compatibility(kind, browser_version, driver_version):
 
 @_public_api
 def driver_library() -> list[dict]:
-    """Read-only inventory: available-kind rows followed by installations."""
-    rows = [{"kind": kind, "name": name, "path": "", "version": "", "source": "available", "installed": False}
-            for kind, name in DRIVER_NAMES.items()]
+    """Read-only inventory of installed driver versions and their provenance."""
+    rows = []
     seen = set()
     roots = ((storage_root() / "drivers", "library"), (storage_root() / "selenium", "cache"),
              (Path.home() / ".cache" / "selenium", "selenium-cache"))
@@ -381,6 +380,44 @@ def driver_library() -> list[dict]:
         rows.append({"kind": "safaridriver", "name": DRIVER_NAMES["safaridriver"], "path": "/usr/bin/safaridriver",
                      "version": "built-in", "source": "system", "installed": True})
     return rows
+
+
+@_public_api
+def delete_managed_driver(path) -> None:
+    """Remove one version from AttendanceBook's cache, never a shared/system driver."""
+    candidate = Path(path).expanduser()
+    root = storage_root().resolve()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        raise ValueError("Only AttendanceBook-managed drivers can be deleted / 只能删除本程序管理的驱动。") from None
+    parts = relative.parts
+    imported = len(parts) == 4 and parts[0] == "drivers"
+    cached = len(parts) == 5 and parts[0] == "selenium"
+    if not (imported or cached):
+        raise ValueError("Only individual managed driver versions can be deleted / 只能删除本程序管理的单个驱动版本。")
+    kind = parts[1]
+    version = parts[2] if imported else parts[3]
+    filename = parts[-1]
+    expected = kind + (".exe" if platform.system() == "Windows" else "")
+    if (kind not in DRIVER_NAMES or kind == "safaridriver"
+            or not _VERSION.fullmatch(version) or filename.lower() != expected):
+        raise ValueError("Invalid managed driver path / 驱动路径无效。")
+    if any(part.is_symlink() for part in (root, *candidate.parents, candidate)):
+        raise ValueError("Linked driver paths cannot be deleted / 不能删除符号链接驱动路径。")
+    if not candidate.is_file() or candidate.resolve() != candidate:
+        raise ValueError("The selected driver no longer exists / 所选驱动已不存在。")
+    with _LOCK:
+        profiles = _read()["profiles"]
+        if any(p.get("driver_path") and Path(p["driver_path"]).expanduser().resolve() == candidate
+               for p in profiles):
+            raise ValueError("A saved profile uses this driver; change that profile first / 已保存配置正在使用此驱动，请先更改配置。")
+        # Delete only the selected executable; metadata or sibling files remain.
+        candidate.unlink()
+        try:
+            candidate.parent.rmdir()
+        except OSError:
+            pass
 
 
 @_public_api

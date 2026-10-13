@@ -1,6 +1,6 @@
 """Developer-only live portal smoke check; not a unittest-discovered test.
 
-Usage: python tests/live_portal_smoke.py --run-live --profile-id ID \
+Usage: python tests/manual/live_portal_smoke.py --run-live --profile-id ID \
     --year 2026 --term 11 --week 1
 
 The operator must also confirm interactively. This script never writes portal
@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "app"))
 
 from browser_config import load_profiles

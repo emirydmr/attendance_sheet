@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import uuid
 from pathlib import Path
 import tkinter as tk
@@ -26,6 +27,7 @@ from browser_config import (
     resolve_profile,
     driver_library,
     import_driver,
+    delete_managed_driver,
 )
 
 
@@ -51,6 +53,9 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._pending_jobs = []
         self._generation = 0
         self._after_id = None
+        self._ready_after_id = None
+        self._ready_generation = None
+        self._download_progress = None
         self._suspend_traces = True
         self._interactive: list[tuple[tk.Widget, str]] = []
         self._driver_rows: dict[str, dict] = {}
@@ -78,6 +83,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._browser_label = tk.StringVar(self, "")
         self._driver_label = tk.StringVar(self, "")
         self._detected_label = tk.StringVar(self, "")
+        self._readiness_note = tk.StringVar(self, "")
         self._status_var = tk.StringVar(
             self,
             self._text(
@@ -126,9 +132,8 @@ class BrowserSettingsDialog(tk.Toplevel):
         ttk.Label(
             outer, wraplength=780,
             text=self._text(
-                "Automatic mode: Apply gets a matching driver if needed. Open browser may get a new driver "
-                "after a browser update. Startup never downloads anything; browsers are never downloaded.",
-                "自动模式：点击“应用”会按需获取匹配驱动；浏览器更新后，点击“打开浏览器”可能获取新驱动。启动应用时不会下载任何内容，也不会下载浏览器。",
+                "Only Download matching driver fetches a driver. Apply and Open browser use installed drivers only; browsers are never downloaded.",
+                "只有“下载匹配的驱动”会获取驱动。“应用”和“打开浏览器”只使用已安装的驱动；不会下载浏览器。",
             ),
         ).pack(fill="x", pady=(8, 0))
 
@@ -260,9 +265,13 @@ class BrowserSettingsDialog(tk.Toplevel):
         )
         self._download_button.pack(side="left")
         self._apply_button = self._track_widget(
-            ttk.Button(action_bar, text=self._text("Apply — get matching driver if needed", "应用 — 按需获取匹配驱动"), command=self._apply)
+            ttk.Button(action_bar, text=self._text("Apply", "应用"), command=self._apply)
         )
         self._apply_button.pack(side="right")
+        self._apply_button.configure(state="disabled")
+        ttk.Label(form, textvariable=self._readiness_note, wraplength=650).grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=(5, 0),
+        )
 
     def _toggle_advanced(self):
         self._advanced_visible = not self._advanced_visible
@@ -286,28 +295,27 @@ class BrowserSettingsDialog(tk.Toplevel):
         ttk.Label(
             parent,
             text=self._text(
-                "Cached and system drivers. Select an installed row to use it. "
-                "To download a matching driver, use the button in Profiles.",
-                "缓存及系统驱动。选择已安装项即可使用；如需下载匹配驱动，请使用“配置”页中的按钮。",
+                "Different versions may coexist for different browser versions. Only AttendanceBook cache/import drivers can be deleted here; shared Selenium and system drivers are read-only.",
+                "不同版本的驱动可同时存在，以匹配不同版本的浏览器。这里只能删除本程序缓存或导入的驱动；共享 Selenium 缓存和系统驱动只读。",
             ),
             wraplength=700,
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.driver_list = ttk.Treeview(
-            parent, columns=("version", "source", "installed", "path"),
+            parent, columns=("version", "source", "path"),
             show="tree headings", selectmode="browse",
         )
         headings = (
             ("#0", self._text("Driver", "驱动"), 170),
             ("version", self._text("Version", "版本"), 110),
-            ("source", self._text("Source", "来源"), 120),
-            ("installed", self._text("Installed", "已安装"), 90),
-            ("path", self._text("Path", "路径"), 310),
+            ("source", self._text("Source", "来源"), 155),
+            ("path", self._text("Path", "路径"), 365),
         )
         for column, title, width in headings:
             self.driver_list.heading(column, text=title)
             self.driver_list.column(column, width=width, stretch=column in ("#0", "path"))
         self.driver_list.grid(row=1, column=0, sticky="nsew")
         self.driver_list.bind("<Double-1>", lambda _event: self._use_cached_driver())
+        self.driver_list.bind("<<TreeviewSelect>>", self._driver_library_selected)
         self._track_widget(self.driver_list)
 
         actions = ttk.Frame(parent)
@@ -324,6 +332,11 @@ class BrowserSettingsDialog(tk.Toplevel):
             ttk.Button(actions, text=self._text("Import driver…", "导入驱动…"), command=self._import)
         )
         self._import_button.pack(side="left")
+        self._delete_driver_button = self._track_widget(
+            ttk.Button(actions, text=self._text("Delete selected driver…", "删除所选驱动…"), command=self._delete_driver)
+        )
+        self._delete_driver_button.pack(side="left", padx=6)
+        self._delete_driver_button.configure(state="disabled")
 
     # ---- Editor state -------------------------------------------------
 
@@ -331,6 +344,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         if not self._suspend_traces:
             self._generation += 1
             self._sync_detected_selection()
+            self._schedule_readiness()
 
     def _set_vars(self, values: dict):
         self._suspend_traces = True
@@ -348,6 +362,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._generation += 1
         self._update_advanced_states()
         self._sync_detected_selection()
+        self._schedule_readiness()
 
     @staticmethod
     def _same_executable(left, right):
@@ -454,6 +469,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._generation += 1
         self._update_advanced_states()
         self._sync_detected_selection()
+        self._schedule_readiness()
 
     def _driver_selected(self, _event=None):
         kind = next((key for key, label in DRIVER_NAMES.items()
@@ -562,6 +578,55 @@ class BrowserSettingsDialog(tk.Toplevel):
         if accepted:
             self.destroy()
 
+    def _schedule_readiness(self):
+        """Enable Apply only after an offline, nonblocking compatibility check."""
+        if not hasattr(self, "_apply_button") or self._closed:
+            return
+        self._ready_generation = None
+        self._apply_button.configure(state="disabled")
+        if hasattr(self, "_readiness_note"):
+            self._readiness_note.set(self._text("Checking installed driver…", "正在检查已安装驱动…"))
+        if self._ready_after_id is not None:
+            self.after_cancel(self._ready_after_id)
+        self._ready_after_id = self.after(180, self._start_readiness)
+
+    def _start_readiness(self):
+        self._ready_after_id = None
+        generation = self._generation
+        try:
+            profile = dict(self._validate_profile(self._snapshot_profile()))
+        except ValueError:
+            if hasattr(self, "_readiness_note"):
+                self._readiness_note.set(self._text(
+                    "Complete the browser and driver details to enable Apply.",
+                    "请填写浏览器和驱动信息以启用“应用”。",
+                ))
+            return
+
+        def check():
+            try:
+                resolve_profile(profile, allow_download=False)
+            except Exception:
+                ready = False
+            else:
+                ready = True
+            self._queue.put(("readiness", generation, ready))
+
+        threading.Thread(target=check, name="browser-settings-readiness", daemon=True).start()
+
+    def _accept_readiness(self, generation, ready):
+        if self._closed or generation != self._generation:
+            return
+        self._ready_generation = generation if ready else None
+        self._apply_button.configure(state="normal" if ready and not self._busy else "disabled")
+        if hasattr(self, "_readiness_note"):
+            self._readiness_note.set(self._text(
+                "Matching driver installed. Ready to apply." if ready else
+                "No compatible driver found. Download or import a matching one.",
+                "已安装匹配驱动，可以应用。" if ready else
+                "未找到兼容驱动，请下载或导入匹配驱动。",
+            ))
+
     # ---- Pickers and library -----------------------------------------
 
     def _browse_executable(self):
@@ -613,6 +678,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._generation += 1
         self._update_advanced_states()
         self._sync_detected_selection()
+        self._schedule_readiness()
 
     def _use_cached_driver(self):
         selection = self.driver_list.selection()
@@ -634,6 +700,36 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._update_advanced_states()
         self._status_var.set(self._text("Selected driver added to the editor.", "所选驱动已填入编辑器。"))
 
+    def _driver_library_selected(self, _event=None):
+        selected = self.driver_list.selection()
+        row = self._driver_rows.get(selected[0], {}) if selected else {}
+        managed = (row.get("source") in ("cache", "library")
+                   and row.get("kind") != "safaridriver" and bool(row.get("path")))
+        self._delete_driver_button.configure(state="normal" if managed and not self._busy else "disabled")
+
+    def _delete_driver(self):
+        selected = self.driver_list.selection()
+        row = self._driver_rows.get(selected[0], {}) if selected else {}
+        if (row.get("source") not in ("cache", "library") or row.get("kind") == "safaridriver"
+                or not row.get("path")):
+            self._show_error(ValueError(self._text(
+                "Only AttendanceBook-managed drivers can be deleted here.",
+                "这里只能删除本程序管理的驱动。")))
+            return
+        if not messagebox.askyesno(
+            self._text("Delete driver", "删除驱动"),
+            self._text(
+                "Permanently delete this driver version from AttendanceBook's cache? Other versions will remain.",
+                "确定永久删除本程序缓存中的此驱动版本吗？其他版本将保留。"),
+            parent=self,
+        ):
+            return
+        path = str(row["path"])
+        self._start_worker(
+            "delete_driver", lambda: delete_managed_driver(path),
+            status=self._text("Deleting selected driver…", "正在删除所选驱动…"),
+        )
+
     # ---- Background operations --------------------------------------
 
     def _set_busy(self, busy: bool, label: str = ""):
@@ -645,6 +741,10 @@ class BrowserSettingsDialog(tk.Toplevel):
                 pass
         if not busy:
             self._update_advanced_states()
+        if hasattr(self, "_apply_button"):
+            self._apply_button.configure(state="normal" if not busy and self._ready_generation == self._generation else "disabled")
+        if hasattr(self, "_delete_driver_button"):
+            self._driver_library_selected()
         if label:
             self._status_var.set(label)
 
@@ -706,11 +806,69 @@ class BrowserSettingsDialog(tk.Toplevel):
         except ValueError as exc:
             self._show_error(exc)
             return
-        self._start_worker(
+        started = self._start_worker(
             "download", lambda profile=snapshot: resolve_profile(profile, allow_download=True),
             stale_sensitive=True,
-            status=self._text("Downloading the matching driver…", "正在下载匹配的驱动…"),
+            status=self._text("Checking or downloading the matching driver…", "正在检查或下载匹配的驱动…"),
         )
+        if started:
+            self._show_download_progress()
+
+    def _show_download_progress(self):
+        if not hasattr(self, "tk"):
+            return
+        popup = tk.Toplevel(self)
+        popup.title(self._text("Driver setup", "驱动设置"))
+        popup.transient(self)
+        popup.resizable(False, False)
+        frame = ttk.Frame(popup, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text=self._text(
+            "Checking the browser version and locating or downloading its driver…",
+            "正在检查浏览器版本并查找或下载匹配的驱动…",
+        ), wraplength=400).pack(fill="x")
+        bar = ttk.Progressbar(frame, mode="indeterminate", length=350)
+        bar.pack(fill="x", pady=12)
+        bar.start(12)
+        status = tk.StringVar(popup, self._text(
+            "Selenium Manager is working; transfer percentage is unavailable.",
+            "Selenium Manager 正在运行；无法获取下载百分比。",
+        ))
+        ttk.Label(frame, textvariable=status, wraplength=400).pack(fill="x")
+        started = time.monotonic()
+        self._download_progress = (popup, bar, status)
+
+        def tick():
+            if self._download_progress is None or self._download_progress[0] is not popup:
+                return
+            elapsed = int(time.monotonic() - started)
+            status.set(self._text(f"Working… {elapsed} s elapsed", f"正在处理… 已用 {elapsed} 秒"))
+            popup.after(1000, tick)
+
+        popup.after(1000, tick)
+        popup.protocol("WM_DELETE_WINDOW", popup.withdraw)
+
+    def _finish_download_progress(self, ok, stale=False):
+        progress = getattr(self, "_download_progress", None)
+        if not progress:
+            return
+        popup, bar, status = progress
+        if not popup.winfo_exists():
+            self._download_progress = None
+            return
+        bar.stop()
+        status.set(self._text(
+            "Driver ready. Review the profile and click Apply." if ok and not stale else
+            "Download finished, but the profile changed. Review it again." if stale else
+            "Driver setup failed. Check the error and retry.",
+            "驱动已就绪。检查配置后点击“应用”。" if ok and not stale else
+            "下载已结束，但配置已更改。请重新检查。" if stale else
+            "驱动设置失败。请查看错误并重试。",
+        ))
+        ttk.Button(popup.winfo_children()[0], text=self._text("Close", "关闭"), command=popup.destroy).pack(pady=(12, 0))
+        popup.protocol("WM_DELETE_WINDOW", popup.destroy)
+        popup.deiconify()
+        self._download_progress = None
 
     def _import(self):
         kind = self._vars["driver_kind"].get().strip()
@@ -739,7 +897,10 @@ class BrowserSettingsDialog(tk.Toplevel):
                 item = self._queue.get_nowait()
             except queue.Empty:
                 break
-            self._handle_worker_result(item)
+            if item[0] == "readiness":
+                self._accept_readiness(item[1], item[2])
+            else:
+                self._handle_worker_result(item)
         if not self._closed:
             self._after_id = self.after(self.POLL_MS, self._poll)
 
@@ -754,6 +915,8 @@ class BrowserSettingsDialog(tk.Toplevel):
         if self._closed or operation != self._operation:
             return
         self._set_busy(False)
+        if kind == "download":
+            self._finish_download_progress(ok, generation is not None and generation != self._generation)
         if generation is not None and generation != self._generation:
             self._status_var.set(self._text("Ignored an outdated result.", "已忽略过期结果。"))
             return
@@ -781,10 +944,14 @@ class BrowserSettingsDialog(tk.Toplevel):
         elif kind == "download":
             self._update_from_resolved(payload)
             self._status_var.set(self._text(
-                "Driver downloaded; review and Apply to save.",
-                "驱动已下载；请检查后点击“应用”保存。",
+                "Matching driver ready; review and Apply to save.",
+                "匹配驱动已就绪；请检查后点击“应用”保存。",
             ))
             self._refresh_drivers()
+        elif kind == "delete_driver":
+            self._status_var.set(self._text("Driver deleted.", "驱动已删除。"))
+            self._refresh_drivers()
+            self._schedule_readiness()
         elif kind == "import":
             driver_kind, driver_path = payload
             self._vars["driver_kind"].set(str(driver_kind))
@@ -818,6 +985,7 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._generation += 1
         self._update_advanced_states()
         self._sync_detected_selection()
+        self._schedule_readiness()
 
     def _render_driver_library(self, rows):
         self.driver_list.delete(*self.driver_list.get_children())
@@ -828,16 +996,20 @@ class BrowserSettingsDialog(tk.Toplevel):
             self._driver_rows[item_id] = row
             kind = str(row.get("kind") or "")
             path = str(row.get("path") or "")
-            installed = bool(row.get("installed", bool(path)))
             self.driver_list.insert(
                 "", "end", iid=item_id,
                 text=DRIVER_NAMES.get(kind, row.get("name") or kind),
                 values=(
-                    row.get("version") or "—", row.get("source") or "—",
-                    self._text("Yes", "是") if installed else self._text("No", "否"),
+                    row.get("version") or "—", {
+                        "library": self._text("App import", "本程序导入"),
+                        "cache": self._text("App cache", "本程序缓存"),
+                        "selenium-cache": self._text("Shared Selenium", "共享 Selenium"),
+                        "system": self._text("System", "系统"),
+                    }.get(row.get("source"), row.get("source") or "—"),
                     path or "—",
                 ),
             )
+        self._driver_library_selected()
 
     def _show_error(self, exc):
         if isinstance(exc, ValueError) and str(exc).strip():
@@ -852,6 +1024,14 @@ class BrowserSettingsDialog(tk.Toplevel):
         self._closed = True
         self._operation += 1
         self._pending_jobs.clear()
+        if self._ready_after_id is not None:
+            self.after_cancel(self._ready_after_id)
+            self._ready_after_id = None
+        if self._download_progress is not None:
+            popup = self._download_progress[0]
+            if popup.winfo_exists():
+                popup.destroy()
+            self._download_progress = None
         if self._after_id is not None:
             try:
                 self.after_cancel(self._after_id)

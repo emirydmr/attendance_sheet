@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import live_portal_smoke as smoke
+from manual import live_portal_smoke as smoke
 
 
 ARGS = ["--profile-id", "saved", "--year", "2026", "--term", "11", "--week", "1"]

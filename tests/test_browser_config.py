@@ -222,7 +222,7 @@ class BrowserConfigTests(unittest.TestCase):
                 bc._driver_details(renamed, "chromedriver")
             self.assertNotIn("private command", str(error.exception))
 
-    def test_import_is_versioned_and_inventory_lists_all_kinds_without_execution(self):
+    def test_import_is_versioned_and_inventory_lists_installations_without_execution(self):
         with patch.object(bc, "_driver_details", return_value="150.0.7777.2"):
             imported = bc.import_driver(self.driver, "chromedriver")
         self.assertEqual(Path(imported).read_bytes(), b"fixture")
@@ -230,9 +230,41 @@ class BrowserConfigTests(unittest.TestCase):
                          ("drivers", "chromedriver", "150.0.7777.2"))
         with patch.object(bc, "_run") as run, patch.object(bc.Path, "home", return_value=self.root):
             rows = bc.driver_library()
-        self.assertEqual({row["kind"] for row in rows if not row["installed"]}, set(bc.DRIVER_NAMES))
+        self.assertTrue(all(row["path"] for row in rows))
         self.assertTrue(any(row["path"] == imported and row["version"] == "150.0.7777.2" for row in rows))
         run.assert_not_called()
+
+    def test_delete_only_app_owned_driver_version(self):
+        imported = self.file("resources/drivers/chromedriver/150.0.7777.2/chromedriver")
+        another = self.file("resources/drivers/chromedriver/151.0.1.1/chromedriver")
+        cached = self.file("resources/selenium/chromedriver/mac-arm64/152.0.1.1/chromedriver")
+        bc.delete_managed_driver(imported)
+        bc.delete_managed_driver(cached)
+        self.assertFalse(imported.exists())
+        self.assertFalse(cached.exists())
+        self.assertTrue(another.exists())
+        with self.assertRaisesRegex(ValueError, "Only AttendanceBook-managed"):
+            bc.delete_managed_driver(self.driver)
+        self.assertTrue(self.driver.exists())
+
+    def test_delete_refuses_profile_reference_and_symlink(self):
+        managed = self.file("resources/drivers/chromedriver/150.0.7777.2/chromedriver")
+        bc.save_profile({**self.profile, "driver_mode": "manual", "driver_path": str(managed)})
+        with self.assertRaisesRegex(ValueError, "saved profile uses"):
+            bc.delete_managed_driver(managed)
+        self.assertTrue(managed.exists())
+        bc.delete_profile("one")
+        managed.unlink()
+        managed.symlink_to(self.driver)
+        with self.assertRaisesRegex(ValueError, "Linked driver paths"):
+            bc.delete_managed_driver(managed)
+        self.assertTrue(self.driver.exists())
+
+    def test_delete_accepts_windows_managed_exe_shape(self):
+        managed = self.file("resources/selenium/msedgedriver/win64/150.0.1.1/msedgedriver.exe")
+        with patch.object(bc.platform, "system", return_value="Windows"):
+            bc.delete_managed_driver(managed)
+        self.assertFalse(managed.exists())
 
     def test_macos_bundle_and_detection_are_read_only(self):
         app = self.root / "Chrome.app"

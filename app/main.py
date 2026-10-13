@@ -91,8 +91,8 @@ def worker(commands, events, profile, demo):
                 break
             try:
                 if task == "activate_profile":
-                    # Apply is explicit setup consent; only the matching driver downloads.
-                    candidate = resolve_profile(args[0], allow_download=True)
+                    # Driver acquisition is confined to Browser Settings' Download action.
+                    candidate = resolve_profile(args[0], allow_download=False)
                     events.put(("session_closed", task, None))
                     session.close()
                     saved = save_profile(candidate, activate=True)
@@ -106,8 +106,7 @@ def worker(commands, events, profile, demo):
                         # A failed setup must never leave the preceding student's
                         # authenticated browser available behind a cleared UI.
                         session.close()
-                        # Only this explicit user action may refresh a cached driver.
-                        profile = resolve_profile(profile, allow_download=True)
+                        profile = resolve_profile(profile, allow_download=False)
                         session.profile = profile
                     result = {"navigation_timeout": False} if demo else session.open()
                 elif task == "login_diagnostic":

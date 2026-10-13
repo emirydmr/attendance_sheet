@@ -1,5 +1,8 @@
 """Render a fictitious photo book and check the offline browser preview."""
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from browser_fixture import headless_browser, preview_document, smoke_profile
 from document import print_pdf
@@ -8,7 +11,7 @@ from test_photo import sample_photo
 
 
 def main():
-    target = Path(__file__).resolve().parents[1] / "work" / "PHOTO_DEMO001_长安大学国际学生考勤册.pdf"
+    target = Path(__file__).resolve().parents[2] / "work" / "PHOTO_DEMO001_长安大学国际学生考勤册.pdf"
     data = fixture()
     data["last_week"] = 3
     data["weeks"] = data["weeks"][:3]

@@ -1,10 +1,13 @@
 """Offline Selenium QA: margins, responsive preview, dense/oversize pages."""
 import copy
 from pathlib import Path
+import sys
 import tempfile
 import shutil
 import subprocess
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from browser_fixture import headless_browser, preview_document, smoke_profile
 from document import print_pdf
@@ -21,7 +24,7 @@ def main():
         {'day': 1, 'day_span': 1, 'first_period': p, 'period_count': 2,
          'text': '\n'.join(['示例课程详情'] * 8)} for p in (1, 3, 5, 7, 9, 11)]
 
-    project = Path(__file__).resolve().parents[1]
+    project = Path(__file__).resolve().parents[2]
     target = project / 'work' / 'LAYOUT_DEMO_长安大学国际学生考勤册.pdf'
     profile = smoke_profile(require_chromium=True)
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -53,8 +53,9 @@ or final printed layout on another computer.
 
 Install the browser yourself. **Browser Settings** opens automatically when no
 profile is active. Create a named profile and select the browser; the app detects
-its executable and chooses the driver kind. Click **Apply** to explicitly allow
-matching-driver acquisition when needed. Advanced overrides and the driver
+its executable and chooses the driver kind. If a matching driver is missing,
+click **Download matching driver** first; **Apply** uses only installed drivers
+and stays disabled until one matches. Advanced overrides and the driver
 library allow manual setup. Configuration and cached drivers live in
 `~/Library/Application Support/AttendanceBook`; normal app use needs no
 administrator installation. A build does not assign a runtime browser default,

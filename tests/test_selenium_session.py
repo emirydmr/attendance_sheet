@@ -135,6 +135,15 @@ class WorkerTests(unittest.TestCase):
         self.assertIn(("session_closed", "activate_profile", None), events)
         self.assertIn(("error", "activate_profile", "PermissionError"), events)
 
+    def test_apply_and_open_never_download_drivers(self):
+        session = Mock()
+        with patch("main.PortalSession", return_value=session), \
+                patch("main.resolve_profile", return_value={"id": "new"}) as resolve, \
+                patch("main.save_profile", return_value={"id": "new"}):
+            self.run_commands([("activate_profile", ({"id": "new"},)), ("open", ())])
+        self.assertEqual(resolve.call_count, 2)
+        self.assertTrue(all(call.kwargs.get("allow_download") is False for call in resolve.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,9 @@ def make_dialog(executable, *, profile_id="profile-1", active=None):
     dialog._suspend_traces = False
     dialog._queue = queue.Queue()
     dialog._pending_jobs = []
+    dialog._ready_after_id = None
+    dialog._ready_generation = None
+    dialog._download_progress = None
     dialog._detected = []
     dialog._detected_combo = Mock()
     dialog._detected_label = FakeVar()
@@ -166,6 +169,53 @@ class BrowserSettingsControllerTests(unittest.TestCase):
         self.assertEqual(resolve.call_args.args[0]["driver_mode"], "auto")
         self.assertEqual(resolve.call_args.args[0]["driver_path"], "")
         self.assertEqual(dialog._vars["driver_mode"].get(), "manual")
+
+    def test_apply_stays_disabled_until_offline_resolution_succeeds(self):
+        dialog = make_dialog(str(self.executable))
+        dialog._apply_button = Mock()
+        callbacks = []
+        dialog.after = lambda delay, callback: callbacks.append(callback) or "timer"
+        dialog.after_cancel = Mock()
+        with patch.object(bs, "resolve_profile", return_value={"driver_path": "/ready"}) as resolve:
+            dialog._schedule_readiness()
+            dialog._apply_button.configure.assert_called_with(state="disabled")
+            with patch.object(bs.threading, "Thread") as thread:
+                callbacks.pop()()
+                thread.call_args.kwargs["target"]()
+            dialog._accept_readiness(*dialog._queue.get_nowait()[1:])
+        resolve.assert_called_once()
+        self.assertFalse(resolve.call_args.kwargs["allow_download"])
+        dialog._apply_button.configure.assert_called_with(state="normal")
+        dialog._generation += 1
+        dialog._accept_readiness(dialog._generation, False)
+        dialog._apply_button.configure.assert_called_with(state="disabled")
+
+    def test_driver_delete_action_rejects_shared_cache(self):
+        dialog = make_dialog(str(self.executable))
+        dialog._driver_rows = {"one": {"path": "/shared/driver", "source": "selenium-cache"}}
+        dialog.driver_list = Mock()
+        dialog.driver_list.selection.return_value = ("one",)
+        dialog._delete_driver_button = Mock()
+        dialog._driver_library_selected()
+        dialog._delete_driver_button.configure.assert_called_with(state="disabled")
+        with patch.object(bs, "delete_managed_driver") as remove:
+            dialog._delete_driver()
+        remove.assert_not_called()
+        dialog._show_error.assert_called_once()
+
+    def test_driver_delete_action_uses_exact_managed_path(self):
+        dialog = make_dialog(str(self.executable))
+        dialog._driver_rows = {"one": {"path": "/app/driver/one", "source": "cache"}}
+        dialog.driver_list = Mock()
+        dialog.driver_list.selection.return_value = ("one",)
+        captured = {}
+        dialog._start_worker = lambda kind, work, **options: captured.update(kind=kind, work=work)
+        with patch.object(bs.messagebox, "askyesno", return_value=True), \
+                patch.object(bs, "delete_managed_driver") as remove:
+            dialog._delete_driver()
+            captured["work"]()
+        self.assertEqual(captured["kind"], "delete_driver")
+        remove.assert_called_once_with("/app/driver/one")
 
     def test_stale_download_result_cannot_replace_editor(self):
         dialog = make_dialog(str(self.executable))
@@ -405,6 +455,14 @@ class BrowserSettingsTkTests(unittest.TestCase):
                                 action = dialog._download_button if tab == 0 else dialog._import_button
                                 self.assertTrue(action.winfo_viewable())
                             self.assertFalse(hasattr(dialog, "_library_download_button"))
+                        dialog._show_download_progress()
+                        root.update()
+                        popup = dialog._download_progress[0]
+                        progress_status = dialog._download_progress[2]
+                        self.assertTrue(popup.winfo_exists())
+                        dialog._finish_download_progress(True)
+                        self.assertIn("Apply" if not chinese else "应用", progress_status.get())
+                        popup.destroy()
                         dialog.window.lift()
                     finally:
                         dialog.window.destroy()

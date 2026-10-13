@@ -1,6 +1,9 @@
 """Offline Selenium QA for omitting scanned weeks with no classes."""
 import copy
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from browser_fixture import headless_browser, preview_document, smoke_profile
 from document import print_pdf
@@ -11,7 +14,7 @@ from test_photo import sample_photo
 def main():
     from pypdf import PdfReader
 
-    project = Path(__file__).resolve().parents[1]
+    project = Path(__file__).resolve().parents[2]
     data = fixture()
     data['last_week'] = 3
     data['weeks'] = data['weeks'][:3]
