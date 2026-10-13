@@ -315,6 +315,8 @@ class BrowserSettingsTkTests(unittest.TestCase):
                     for chinese in (False, True):
                         dialog = bs.BrowserSettingsDialog(root, Mock(return_value=False), chinese=chinese)
                         try:
+                            root.update()
+                            self._assert_children_fit(dialog)
                             deadline = time.monotonic() + 3
                             while (dialog._busy or dialog._pending_jobs) and time.monotonic() < deadline:
                                 root.update()
@@ -367,6 +369,8 @@ class BrowserSettingsTkTests(unittest.TestCase):
                             self._assert_children_fit(dialog)
                             dialog._browser_combo.set(bs.BROWSER_NAMES["custom"])
                             dialog._browser_combo.event_generate("<<ComboboxSelected>>")
+                            root.update()
+                            self.assertEqual(dialog._vars["executable"].get(), "")
                             dialog._vars["executable"].set(str(Path(directory, "custom-browser")))
                             root.update()
                             self.assertEqual(dialog._vars["browser"].get(), "custom")
@@ -399,6 +403,8 @@ class BrowserSettingsTkTests(unittest.TestCase):
                 for chinese in (False, True):
                     dialog = bs.BrowserSettingsDialog(root, Mock(return_value=False), chinese=chinese)
                     try:
+                        root.update()
+                        self._assert_children_fit(dialog)
                         self.assertIs(dialog.window, dialog)
                         self.assertEqual(dialog._vars["browser"].get(), "")
                         notebook = next(widget for widget in dialog.winfo_children()[0].winfo_children()

@@ -436,11 +436,29 @@ class BrowserSettingsDialog(tk.Toplevel):
     def _browser_selected(self, _event=None):
         browser = next((key for key, label in BROWSER_NAMES.items()
                         if label == self._browser_label.get()), "")
-        self._vars["browser"].set(browser)
-        if browser and not self._override_var.get():
-            kind = default_driver_kind(browser)
-            self._vars["driver_kind"].set(kind)
-            self._driver_label.set(DRIVER_NAMES.get(kind, ""))
+        if not browser:
+            return
+        previous = self._vars["browser"].get()
+        self._suspend_traces = True
+        try:
+            self._vars["browser"].set(browser)
+            if previous != browser:
+                self._vars["executable"].set("")
+                kind = default_driver_kind(browser)
+                self._vars["driver_kind"].set(kind)
+                self._driver_label.set(DRIVER_NAMES[kind])
+                self._vars["driver_mode"].set("auto")
+                self._vars["driver_path"].set("")
+                self._override_var.set(False)
+                name = self._vars["name"].get().strip()
+                if not name or (not self._loaded_id and name == self._suggested_name):
+                    self._vars["name"].set(BROWSER_NAMES[browser])
+                    self._suggested_name = BROWSER_NAMES[browser]
+        finally:
+            self._suspend_traces = False
+        self._generation += 1
+        self._update_advanced_states()
+        self._sync_detected_selection()
 
     def _driver_selected(self, _event=None):
         kind = next((key for key, label in DRIVER_NAMES.items()
