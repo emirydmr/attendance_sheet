@@ -1,7 +1,6 @@
-"""Escaped, offline attendance-book layout for Chromium PDF printing.
+"""Escaped, offline attendance-book layout for browser PDF printing.
 
 The HTML/CSS template is authoritative for both PDF and browser printing.
-The archived LaTeX draft is not a runtime dependency.
 """
 from __future__ import annotations
 

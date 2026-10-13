@@ -1,14 +1,20 @@
-# Attendance portal retrieval prototype
+# Historical attendance portal retrieval prototype
 
-This is the retrieval diagnostic for the planned Tkinter attendance-book app.
-It does not yet generate PDFs. The personal-information name parser has been
-tested; the academic forms need additional field mapping.
-The finished deliverable is intended to be one Windows executable with its own
-Chromium browser, English/Chinese GUI, and a self-contained PDF renderer.
+This is the September 2026 Playwright proof of concept, retained for its portal
+investigation and parser history. It is not the current AttendanceBook app or a
+supported release build. For the current Selenium application, use the
+[repository README](../../README.md). The commands and results below describe
+this historical prototype only.
 
-## Run
+At the time, this diagnostic explored retrieval for a planned Tkinter app. It
+did not generate PDFs, and its academic forms still needed field mapping. Its
+proposed Windows deliverable would have embedded Chromium. The current app uses
+Selenium with an installed browser and the maintained HTML/PDF layout.
 
-Use Python 3.12 with Tkinter. Install requirements, then run:
+## Historical run instructions
+
+From `poc/portal-diagnostic/`, use Python 3.12 with Tkinter. Install the
+prototype requirements, then run:
 
 ```sh
 python -m pip install -r requirements.txt
@@ -18,8 +24,8 @@ python app.py
 
 If Chrome is already installed, use `python app.py --system-chrome` to run
 the local diagnostic without downloading Chromium. This uses a new temporary
-browser context, not the operator's personal Chrome profile. The Windows build
-still embeds Chromium and must be checked with that bundled engine.
+browser context, not the operator's personal Chrome profile. The prototype's
+Windows diagnostic build embedded Chromium and required testing with that engine.
 
 The numbered controls perform visible login, HTTP retrieval comparison,
 headless comparison, and student-details retrieval. Academic year is the
@@ -33,7 +39,7 @@ both checks after the student finishes manual sign-in. `--report path.json`
 writes only a sanitized result (selected term/week, course count, student number
 suffix, pass/failure flags); it does not save HTML, passwords or session state.
 English/Chinese applies to GUI controls; developer diagnostic messages currently
-use English. The eventual product should translate the remaining error messages.
+use English. The planned product was expected to translate the remaining errors.
 
 `4. Student details (HTTP)` checks the observed portal links for 我的学籍信息,
 学籍异动申请 and 个人信息 using the same verified student's session. Requested
@@ -44,9 +50,9 @@ only field labels, control identifiers and page readability, not profile values.
 enables explicit JSON diagnostic commands on stdin for the local supervisor;
 this creates no network listener and is unnecessary in the packaged GUI.
 
-The project source now lives in `/Users/emirydmr/attendance_sheet/portal-diagnostic/`.
-On this Mac, `run_local.command` opens the GUI with the already installed Chrome
-and current development environment, without downloading anything.
+The prototype source lives in `poc/portal-diagnostic/` within this repository.
+At the time, `run_local.command` opened its GUI on the development Mac with the
+installed Chrome and existing environment, without downloading anything.
 
 ## What the checks prove
 
@@ -68,39 +74,42 @@ the browser and clears the captured baseline. Browser-managed temporary files
 are cleaned up by normal closure. No persistent browser profile or explicit
 storage-state export is created. After a browser failure the operator can end
 the session and open a fresh login window. The diagnostic report is not student
-attendance data; a later export step will deliberately save the selected fields.
+attendance data; export of selected fields was planned for a later app.
 
-## Single Windows executable
+## Historical Windows diagnostic build
 
-Run `build_windows.ps1` on Windows with the standard Python 3.12 installation
-(including Tcl/Tk). The script embeds the full Chromium binary and builds:
+From `poc/portal-diagnostic/`, run its `build_windows.ps1` on Windows with the
+standard Python 3.12 installation (including Tcl/Tk). That prototype script
+embedded the full Chromium binary and built:
 
 ```text
 dist/AttendancePortalDiagnostic.exe
 ```
 
-The build downloads packages and Chromium. After adjusting the VPN, explicitly
-run `./build_windows.ps1 -DownloadsReady`; without that switch it only announces
+That prototype build downloaded packages and Chromium. After adjusting the VPN,
+the historical build instructions called for explicitly running
+`./build_windows.ps1 -DownloadsReady`; without that switch it only announces
 the required downloads and exits. App startup never installs/downloads browsers.
 
-The target machine should not need Python, Playwright or Chrome installed.
-Chromium makes the executable large, and PyInstaller one-file mode extracts
-runtime resources into a temporary directory at launch. It does not produce an
-installer. The executable needs an actual Windows build and a clean-Windows
-launch/retrieval check; this source was prepared on macOS.
+The prototype diagnostic's target machine was not expected to need Python,
+Playwright or Chrome installed. Chromium makes the executable large, and
+PyInstaller one-file mode extracts runtime resources into a temporary directory
+at launch. It does not produce an
+installer. The prototype executable needed an actual Windows build and a clean
+Windows launch/retrieval check; this source was prepared on macOS.
 
-For the final app, the PDF engine and Chinese fonts must also be embedded;
-assumed external LaTeX or font installations would break the one-file goal.
-The reference form has 16 weekly pages, while the portal offers up to 20 weeks
-and seven weekdays. Those output choices remain requirements to settle.
+At the time, the PDF engine and Chinese fonts were still planned for a future
+app, and the reference form's 16 weekly pages had not yet been reconciled with
+the portal's 20 weeks and seven weekdays. These are historical design notes;
+the current document layout is maintained in HTML/CSS.
 
 ## Why Playwright
 
 The browser-associated HTTP client and in-memory storage replay fit the
-visible-login/background-retrieval flow directly. Selenium is also possible,
-but a separate Python requests client would need session synchronization.
-No portal-specific claim of headless or HTTP support is made until the checks
-actually pass in an authenticated student session.
+prototype's visible-login/background-retrieval flow directly. The current
+application uses Selenium and same-origin requests in the signed-in browser.
+The prototype required an authenticated student session before claiming portal
+support for headless or HTTP retrieval.
 
 ## Observed results on this Mac
 
@@ -113,10 +122,10 @@ The visible student login succeeded on September 28, 2026. For academic year
 
 This was tested with the Mac's **installed Chrome**, not the intended embedded
 Chromium. Week 1 had zero course entries. Week 3 subsequently passed all three
-comparisons with five course blocks. The packaged Windows executable still
-requires actual checks. Ten offline parser checks
-passed, including merged course periods, weekend classes, changed student
-identity, malformed grids, wrong selected week, rejected login pages, profile
+comparisons with five course blocks. The prototype Windows executable had not
+undergone those checks. Ten offline parser checks passed, including merged
+course periods, weekend classes, changed student identity, malformed grids,
+wrong selected week, rejected login pages, profile
 fields and excluded sensitive values.
 
 Authenticated HTTP GETs returned readable HTTP 200 pages for 我的学籍信息,
@@ -126,13 +135,14 @@ Chinese or passport name has not been verified. Academic-form controls were
 inventoried, but their values need additional mapping. See `information_map.md`.
 
 The Chromium download failed with a TLS connection reset and was not retried.
-No further downloads were needed for these local checks. `profile_report.json`
-contains the latest sanitized profile/week-3 results; `session_report.json`
-contains the earlier GUI check result.
+No further downloads were needed for these local checks. The private reports were
+moved to the repository's ignored `.archive/portal-diagnostic/` directory:
+`profile_report.json` contains the sanitized profile/week-3 results and
+`session_report.json` contains the earlier GUI check result. They are not
+included in Git or release builds.
 
-The portal's black/orange/conflict course status indicators will also need to
-be mapped using a populated timetable before choosing which entries belong
-in the final attendance book. This diagnostic compares course text/positions.
+The prototype left the portal's black/orange/conflict course status indicators
+unmapped; it compared course text and positions.
 
 Primary references:
 

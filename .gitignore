@@ -29,6 +29,7 @@ Desktop.ini
 *.doc
 *.pdf
 /work/
+/.archive/
 /exports/
 /photos/
 /student-data/
@@ -62,6 +63,11 @@ dist/
 /build/windows/*.json
 /build/macos/*.icns
 /build/source/
+/build/macos/icons/
+/build/windows/icons/
+/build/macos/selenium-cache/
+/build/windows/selenium-cache/
+.venv-build/
 *.exe
 *.app/
 *.dmg
@@ -69,7 +75,7 @@ dist/
 .playwright/
 ms-playwright/
 
-# LaTeX compiler output; the reference .tex source remains tracked.
+# Legacy LaTeX compiler output.
 *.aux
 *.fdb_latexmk
 *.fls
