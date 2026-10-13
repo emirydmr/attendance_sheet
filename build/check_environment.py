@@ -24,24 +24,6 @@ def digest(path):
     return value.hexdigest()
 
 
-def select_browser_executable(channel):
-    """Ask the Windows build user to locate an installed browser."""
-    import tkinter as tk
-    from tkinter import filedialog
-    from browser_config import BROWSER_NAMES
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        return filedialog.askopenfilename(
-            parent=root,
-            title=f"Locate {BROWSER_NAMES[channel]} executable",
-            filetypes=[("Executable files", "*.exe"), ("All files", "*.*")],
-        )
-    finally:
-        root.destroy()
-
-
 def audit(require_build=False):
     errors, versions = [], {}
     if sys.version_info[:2] != (3, 12):
@@ -78,72 +60,47 @@ def audit(require_build=False):
     return errors, versions, hashes
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--require-build', action='store_true')
-    parser.add_argument('--prompt-browser', action='store_true',
-                        help='Offer an executable picker if browser launch fails')
-    browsers = parser.add_mutually_exclusive_group()
-    browsers.add_argument('--system-chrome', action='store_true', help='Use installed Chrome (legacy alias)')
-    browsers.add_argument('--browser', choices=('msedge', 'chrome'), help='Default: installed Edge on Windows, Chrome on macOS')
+    parser.add_argument('--browser', type=Path,
+                        help='Optional explicit browser-profile JSON for a real headless font check; never downloads')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--artifact', type=Path)
-    args = parser.parse_args()
-    from browser_config import default_channel, BROWSER_NAMES, launch_browser, save_browser_executable
-    channel = 'chrome' if args.system_chrome else args.browser or default_channel()
+    args = parser.parse_args(argv)
     errors, versions, hashes = audit(args.require_build)
     details = {'python': platform.python_version(), 'platform': platform.system(),
                'architecture': platform.machine(), 'dependencies': versions,
-               'assets_sha256': hashes, 'browser': 'installed ' + BROWSER_NAMES[channel],
-               'browser_channel': channel}
-    if not errors:
+               'assets_sha256': hashes, 'browser_checked': False}
+    # Importing Tk is safe without a display or an installed browser.
+    try:
+        import tkinter
+        details['tk'] = tkinter.TkVersion
+    except ImportError as exc:
+        errors.append(f'Tk is missing: {exc}')
+    if args.browser and not errors:
         try:
-            from photo import create_root
-            from branding import apply_icon
-            root = create_root()
-            try:
-                root.withdraw()
-                apply_icon(root)
-                details['tk'] = root.tk.call('info', 'patchlevel')
-                details['tkdnd'] = root.tk.call('package', 'present', 'tkdnd')
-            finally:
-                root.destroy()
-        except Exception as exc:
-            errors.append(f'Tk / icon / native drag-and-drop check failed: {type(exc).__name__}: {exc}')
-        try:
-            from playwright.sync_api import sync_playwright
+            from browser_config import launch_browser, resolve_profile
             from document import font_css
-            with sync_playwright() as pw:
-                selected_path = None
-                try:
-                    browser = launch_browser(pw, channel, headless=True)
-                except ValueError:
-                    if not args.prompt_browser:
-                        raise
-                    selected_path = select_browser_executable(channel)
-                    if not selected_path:
-                        raise ValueError("Browser selection canceled; no download started.")
-                    browser = launch_browser(pw, channel, headless=True, executable_path=selected_path)
-
-                font_loaded = False
-                try:
-                    details['browser_version'] = browser.version
-                    page = browser.new_page()
-                    page.route('**/*', lambda route: route.abort())
-                    page.set_content("<style>" + font_css() + "body{font-family:'Attendance CJK'}</style>长安大学国际学生考勤册")
-                    page.evaluate('document.fonts.ready')
-                    font_loaded = page.evaluate(
-                        "Array.from(document.fonts).length > 0 && "
-                        "Array.from(document.fonts).every(f => f.status === 'loaded')"
-                    )
-                    if not font_loaded:
-                        errors.append('Bundled font failed to load in the browser.')
-                finally:
-                    browser.close()
-
-                if selected_path and font_loaded:
-                    save_browser_executable(channel, selected_path)
-                    details['browser_executable'] = selected_path
+            profile = json.loads(args.browser.read_text(encoding='utf-8'))
+            resolve_profile(profile, allow_download=False)
+            browser = launch_browser(profile, headless=True)
+            try:
+                browser.execute_cdp_cmd('Network.enable', {})
+                browser.execute_cdp_cmd('Network.setBlockedURLs', {'urls': ['http://*', 'https://*']})
+                browser.get('about:blank')
+                browser.execute_script("document.write(arguments[0]); document.close();",
+                                       "<style>" + font_css() + "body{font-family:'Attendance CJK'}</style>长安大学国际学生考勤册")
+                font_loaded = browser.execute_async_script(
+                    "const done=arguments[arguments.length-1]; document.fonts.ready.then(() => "
+                    "done(document.fonts.size > 0 && Array.from(document.fonts).every(f => f.status === 'loaded')));"
+                )
+                if not font_loaded:
+                    errors.append('Bundled font failed to load in the browser.')
+                details['browser_version'] = browser.capabilities.get('browserVersion')
+                details['browser_checked'] = True
+            finally:
+                browser.quit()
         except Exception as exc:
             errors.append(f'Headless browser / font check failed: {type(exc).__name__}: {exc}')
     if args.artifact:

@@ -52,6 +52,12 @@ profile_report*.json
 dist/
 /build/macos/work/
 /build/windows/work/
+/build/macos/smoke/
+/build/windows/smoke/
+/build/macos/selenium-validation/
+/build/windows/selenium-validation/
+/build/macos/release/
+/build/windows/release/
 /build/macos/*.json
 /build/windows/*.json
 /build/macos/*.icns

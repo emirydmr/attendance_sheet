@@ -10,11 +10,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+# Verified against the actions' published action.yml files and runner docs.
+# https://github.com/actions/checkout/blob/v7/action.yml
+# https://github.com/actions/setup-python/blob/v7/action.yml
+# https://github.com/actions/upload-artifact/blob/v7/action.yml
+# https://github.com/actions/download-artifact/blob/v8/action.yml
+# https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 jobs:
   windows:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -23,30 +36,44 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             build/requirements-build.txt
-      - name: Create build environment
+      - name: Prepare Python dependencies (explicit downloads)
         shell: pwsh
-        run: python -m venv build/windows/.venv
+        run: .\build\windows\build_windows.ps1 -Prepare -DownloadsReady -NonInteractive
+      - name: Select runner-installed Chrome and acquire ChromeDriver only
+        shell: pwsh
+        run: build/windows/.venv/Scripts/python.exe build/prepare_ci_browser.py --allow-driver-download --output build/windows/ci-browser.json
+      - name: Local cookie, browser fetch, and PDF smoke (no school login)
+        shell: pwsh
+        run: build/windows/.venv/Scripts/python.exe tests/smoke_selenium.py --browser build/windows/ci-browser.json --output build/windows/smoke
       - name: Test and build Windows EXE
         shell: pwsh
-        run: .\build\windows\build_windows.ps1 -NoBrowserPrompt
-      - name: Verify EXE
+        run: .\build\windows\build_windows.ps1 -NonInteractive
+      - name: Stage EXE and checksum
         shell: pwsh
         run: |
           if (-not (Test-Path build/windows/dist/AttendanceBook.exe -PathType Leaf)) {
             throw 'Windows EXE is missing.'
           }
-          Get-FileHash build/windows/dist/AttendanceBook.exe -Algorithm SHA256
+          New-Item -ItemType Directory -Force build/windows/release | Out-Null
+          Copy-Item build/windows/dist/AttendanceBook.exe build/windows/release/AttendanceBook.exe
+          Copy-Item build/windows/AttendanceBook-build-report.json build/windows/release/AttendanceBook-windows-x64-build-report.json
+          Copy-Item build/windows/frozen-self-test.json build/windows/release/AttendanceBook-windows-x64-self-test.json
+          build/windows/.venv/Scripts/python.exe -c "import hashlib,pathlib; p=pathlib.Path('build/windows/release/AttendanceBook.exe'); (p.parent/'SHA256SUMS-windows-x64.txt').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n',encoding='ascii')"
+          if ($LASTEXITCODE) { throw 'Checksum generation failed.' }
       - uses: actions/upload-artifact@v7
         with:
           name: AttendanceBook-windows-x64
-          path: build/windows/dist/AttendanceBook.exe
+          path: build/windows/release/*
           if-no-files-found: error
           retention-days: 14
 
   macos:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -57,26 +84,33 @@ jobs:
             build/requirements-build.txt
       - name: Prepare build environment
         run: ./build/macos/build_macos.command --prepare --downloads-ready
+      - name: Select runner-installed Chrome and acquire ChromeDriver only
+        run: build/macos/.venv/bin/python build/prepare_ci_browser.py --allow-driver-download --output build/macos/ci-browser.json
+      - name: Local cookie, browser fetch, and PDF smoke (no school login)
+        run: build/macos/.venv/bin/python tests/smoke_selenium.py --browser build/macos/ci-browser.json --output build/macos/smoke
       - name: Test and build macOS APP
         run: ./build/macos/build_macos.command
-      - name: Package APP preserving macOS metadata
+      - name: Stage APP ZIP and checksum
         run: |
-          test -f build/macos/dist/AttendanceBook.app/Contents/MacOS/AttendanceBook
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/macos/dist/AttendanceBook.app \
-            build/macos/dist/AttendanceBook-macos-arm64.zip
-          shasum -a 256 build/macos/dist/AttendanceBook-macos-arm64.zip
+          test "$(uname -m)" = arm64
+          test -s build/macos/dist/AttendanceBook-macos-arm64.zip
+          mkdir -p build/macos/release
+          cp build/macos/dist/AttendanceBook-macos-arm64.zip build/macos/release/
+          cp build/macos/build-report.json build/macos/release/AttendanceBook-macos-arm64-build-report.json
+          cp build/macos/frozen-self-test.json build/macos/release/AttendanceBook-macos-arm64-self-test.json
+          build/macos/.venv/bin/python -c "import hashlib,pathlib; p=pathlib.Path('build/macos/release/AttendanceBook-macos-arm64.zip'); (p.parent/'SHA256SUMS-macos-arm64.txt').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n',encoding='ascii')"
       - uses: actions/upload-artifact@v7
         with:
           name: AttendanceBook-macos-arm64
-          path: build/macos/dist/AttendanceBook-macos-arm64.zip
+          path: build/macos/release/*
           if-no-files-found: error
           retention-days: 14
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [windows, macos]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -85,7 +119,7 @@ jobs:
           pattern: AttendanceBook-*
           path: release-assets
           merge-multiple: true
-      - name: Create draft release
+      - name: Publish versioned release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -95,10 +129,18 @@ jobs:
           set -euo pipefail
           test -s release-assets/AttendanceBook.exe
           test -s release-assets/AttendanceBook-macos-arm64.zip
+          (cd release-assets && sha256sum -c SHA256SUMS-windows-x64.txt && sha256sum -c SHA256SUMS-macos-arm64.txt)
+          (cd release-assets && sha256sum AttendanceBook.exe AttendanceBook-macos-arm64.zip > SHA256SUMS.txt)
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; refusing to replace its assets."
             exit 1
           fi
           gh release create "$RELEASE_TAG" release-assets/AttendanceBook.exe \
             release-assets/AttendanceBook-macos-arm64.zip \
-            --draft --generate-notes --verify-tag
+            release-assets/SHA256SUMS.txt \
+            release-assets/AttendanceBook-windows-x64-build-report.json \
+            release-assets/AttendanceBook-macos-arm64-build-report.json \
+            release-assets/AttendanceBook-windows-x64-self-test.json \
+            release-assets/AttendanceBook-macos-arm64-self-test.json \
+            --generate-notes --verify-tag
+          gh release view "$RELEASE_TAG" --json isDraft,assets --jq '{draft: .isDraft, assets: [.assets[].name]}'

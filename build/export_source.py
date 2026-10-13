@@ -6,10 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_APP_SUFFIXES = {'.py', '.html', '.js', '.svg', '.png', '.ico', '.otf', '.txt', '.md'}
 BUILD_FILES = (
     'requirements-build.txt', 'check_environment.py', 'generate_icons.py',
-    'export_source.py', 'macos/build_macos.command', 'macos/run_local.command',
+    'export_source.py', 'prepare_ci_browser.py', 'verify_package.py', 'run_frozen_self_test.py',
+    'macos/build_macos.command', 'macos/run_local.command',
     'macos/requirements-build.txt', 'macos/README.md',
     'windows/build_windows.ps1', 'windows/requirements-build.txt', 'windows/README.md',
-    'hooks/hook-playwright.sync_api.py',
+    'hooks/hook-selenium.py',
 )
 
 

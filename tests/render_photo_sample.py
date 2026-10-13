@@ -1,25 +1,27 @@
+"""Render a fictitious photo book and check the offline browser preview."""
 from pathlib import Path
-import sys
-from playwright.sync_api import sync_playwright
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from document import print_pdf, browser_html
+from browser_fixture import headless_browser, preview_document, smoke_profile
+from document import print_pdf
 from test_production import fixture
 from test_photo import sample_photo
 
-target = Path(__file__).resolve().parents[1] / "work" / "PHOTO_DEMO001_长安大学国际学生考勤册.pdf"
-data = fixture()
-data["last_week"] = 3
-data["weeks"] = data["weeks"][:3]
-data["photo"] = sample_photo()
-with sync_playwright() as pw:
-    print_pdf(pw, "chrome", data, target)
-    browser = pw.chromium.launch(channel="chrome", headless=True)
-    try:
-        page = browser.new_page()
-        page.set_content(browser_html(data), wait_until="load")
-        assert page.locator("#print-book").count() == 1
-        assert page.evaluate("document.images[0].naturalWidth") == 120
-    finally:
-        browser.close()
-print(target)
+
+def main():
+    target = Path(__file__).resolve().parents[1] / "work" / "PHOTO_DEMO001_长安大学国际学生考勤册.pdf"
+    data = fixture()
+    data["last_week"] = 3
+    data["weeks"] = data["weeks"][:3]
+    data["photo"] = sample_photo()
+    profile = smoke_profile()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print_pdf(profile, data, target)
+    with headless_browser(profile) as browser:
+        with preview_document(browser, data):
+            assert len(browser.find_elements("css selector", "#print-book")) == 1
+            assert browser.execute_script("return document.images[0].naturalWidth") == 120
+    print(target)
+
+
+if __name__ == "__main__":
+    main()
