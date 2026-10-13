@@ -1,278 +1,209 @@
 # AttendanceBook / 国际学生考勤册
 
-Built for the administration to automatically generate attendance sheets while
-the student is present and can log in to the university portal.
+AttendanceBook prepares international student attendance books for a specific
+administrative workflow at Chang'an University: a member of staff runs the app
+with the student present, and the student signs in manually to the
+[graduate portal](https://yjs.chd.edu.cn). It relies on that portal's student
+information and weekly timetable format; it is not a general attendance system.
 
-## Requirements
+The app retrieves the student's details and selected teaching weeks, then combines
+them with confirmed cover information and a photograph. The resulting book
+contains the cover, attendance instructions, weekly schedules, summary table and
+leave-slip page. Teachers record attendance by signing the printed class cells.
 
-- Windows: Windows 11 x64 with Microsoft Edge installed by default. Another
-  installed Chromium-based browser can be selected by executable path; this is
-  experimental and must be checked on the target computer.
-- macOS: macOS 14 or newer with Google Chrome installed.
-- Running from source or building: Python 3.12 with Tkinter.
+## Install and run
 
-Packaged applications do not require Python or LaTeX. Browsers are not bundled.
-The application checks the required browser at startup and provides
-**Check browser / retry** and **Locate browser…** if it cannot launch.
-A successful check shows a green checkmark, the selected browser's filename or
-name, and its version. This checks launch, not university login. It never
-downloads a browser.
+Download a Windows executable or macOS application ZIP from
+[GitHub Releases](https://github.com/emirydmr/attendance_sheet/releases), when a
+release is available. On Windows, run `AttendanceBook.exe`; on macOS, extract the
+ZIP and keep the complete `AttendanceBook.app` bundle together. Packaged apps
+include Python, Tkinter, Selenium, templates, icons and the Chinese font. They
+need no separate Python, Node.js or LaTeX installation.
 
-## Setup and launch
+Target platforms are Windows 11 x64 and macOS 14 or newer. Install a supported
+browser yourself before use; neither the app nor its driver setup downloads a
+full browser. Normal use needs no administrator installation. The macOS build
+is unsigned and unnotarized; use your system's approval process for apps from a
+trusted source.
 
-Run all commands from the repository root. Dependencies are pinned in
-[requirements.txt](requirements.txt) and
-[build/requirements-build.txt](build/requirements-build.txt).
-The Windows build script automatically sets up its environment and installs
-any required Python packages. macOS retains its separate preparation step.
+### Run from source
 
-### Windows
+Use Python 3.12 with Tkinter. From the repository root, create an environment and
+install the pinned dependencies in [requirements.txt](requirements.txt), including
+Selenium 4.51.0.
 
-Install Python 3.12 with Tkinter and the Python launcher (`py`), then run in
-PowerShell:
+Windows (PowerShell):
 
 ```powershell
-.\build\windows\build_windows.ps1 -CheckOnly
-.\build\windows\.venv\Scripts\python.exe app/main.py
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app/main.py
 ```
 
-### macOS
-
-With Python 3.12 available as `python3`:
+macOS:
 
 ```sh
-./build/macos/build_macos.command --prepare --downloads-ready
-./build/macos/.venv/bin/python app/main.py
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python app/main.py
 ```
 
-If needed, select a Python 3.12 executable during preparation:
+Tkinter must come with your Python installation; pip does not install it. Append
+`--demo` for fictitious data without portal retrieval. Automated PDF export still needs a configured
+browser in demo mode.
 
-```sh
-PYTHON_BIN=/path/to/python3.12 ./build/macos/build_macos.command --prepare --downloads-ready
-```
+## Browser profiles
 
-For a demonstration without portal retrieval, append `--demo` to the launch
-command. Add `--photo-popup` to open the photo importer immediately.
+On first launch, **Browser Settings** opens automatically when no profile is
+active. Create a named profile and select an installed browser; the app detects
+its executable and chooses the corresponding Selenium driver kind. Click
+**Apply** to explicitly allow matching-driver acquisition when needed and use
+the profile. There is no operating-system default browser choice or browser
+launch check at startup.
 
-## Usage
+A saved profile is a browser/driver configuration, not a student's saved login.
+Keep multiple named configurations and explicitly choose the active one in
+Browser Settings. Advanced settings allow executable, driver-kind and manual
+driver-path overrides. The dialog's driver library lists driver kinds and cached
+installations, with download/import options for setup or manual use.
 
-1. Wait for the startup browser check. If it fails, use **Locate browser…**
-   to select the installed browser executable, or resolve any installation or
-   automation restrictions, then click **Check browser / retry**.
-2. Click **Open browser / log in** and let the student sign in.
-   If the page keeps loading after sign-in, click **Check login…** while it is
-   still spinning, then refresh that browser once and check again. Compare the
-   two results. The check reports recent response hosts/statuses, requests
-   still in progress and browser network error codes already observed; it does
-   not make a new request or establish whether authentication succeeded.
-   It does not show credentials, full URLs or page contents.
-3. Select the academic start year, semester and inclusive week range.
-4. Retrieve student number/major, student name and weekly timetables separately.
-   Click or hover over a result status to inspect the retrieved information.
-   Each input has an ⓘ button and bilingual hover help.
-5. Confirm the Chinese name and passport name, cover major, 班主任, contact
-   number and issue date. The portal's 姓名 is not automatically treated as a
-   Chinese or passport name. 班主任 is the role used on the attendance sheet.
-6. Add a photograph by selecting a file, dragging a local image into the popup,
-   or choosing **Copy image** in the browser and pasting while the popup is active.
-   Use Ctrl+V on Windows or Command+V on macOS. Copy image address is not supported.
-7. Click **Create PDF** and choose a destination. The suggested filename is
-   `<student_id>_长安大学国际学生考勤册.pdf`. Alternatively, use
-   **Open in default browser / print** to save an HTML preview and print it.
-8. Click **End student session** before starting with another student.
-
-For academic year 2026–2027, enter **2026**, not the current calendar year.
-Teaching weeks range from 1 to 20; the default range is 1–18. Empty weeks are
-valid. Changing the semester/year clears retrieved results; changing the week
-range clears timetables.
-
-Enable **Omit empty weeks / 省略无课周** to leave weeks with no classes out of the
-PDF/HTML and summary table. Every week in the selected range is still retrieved
-and checked. Remaining weeks keep their original numbers. This option is on by
-default and can be changed after retrieval without scanning again.
-
-| English semester | Chinese semester | Internal portal code |
+| Installed browser | Driver | Attendance-book export |
 | --- | --- | --- |
-| First semester | 第一学期 | 11 |
-| Second semester | 第二学期 | 12 |
-| Short semester | 短学期 | 13 |
+| Google Chrome | ChromeDriver | Headless PDF through CDP |
+| Microsoft Edge | EdgeDriver | Headless PDF through CDP |
+| Mozilla Firefox | GeckoDriver | PDF through WebDriver `print_page`, when available |
+| Safari (macOS) | Built-in SafariDriver | HTML preview and manual printing; no unattended PDF export |
+| Chromium, 360e or another custom build | Compatible driver required | Experimental; login and PDF compatibility are not guaranteed |
 
-No manual semester-code entry is required. The issue date defaults to today and
-can be edited; the cover prints its year and month.
+Safari requires enabling WebDriver/remote automation on the Mac before use;
+its one-time system setup may require administrator approval. Driver downloads
+require network access. For offline or restricted machines, import a compatible
+driver manually. A browser update may require a new matching driver.
 
-Supported photographs: PNG, JPEG, WebP, BMP, TIFF and GIF, up to 20 MB and
-25 million pixels. For animated images, only the first frame is used.
-Cancelling the photo popup preserves the previous photograph.
+Configuration and cached drivers are stored outside the app and repository:
 
-Teachers sign directly in the relevant class cells. The book includes the cover,
-original attendance instructions, weekly schedules, summary table and leave-slip
-page. There is no separate bottom signature table.
+- Windows: `%LOCALAPPDATA%\AttendanceBook`
+- macOS: `~/Library/Application Support/AttendanceBook`
 
-## Project structure and rendering
+Chrome, Edge and Firefox login sessions use temporary browser state separately
+from those saved configurations. Safari manages its own automation session.
+A failed browser or driver never triggers an automatic switch to another browser.
+Switching profiles ends the current student session and clears retrieved results.
+PDF export uses the selected profile as well.
 
-```text
-app/
-  main.py               Tkinter interface
-  browser_config.py     installed-browser selection and startup check
-  service.py            login session and HTTP retrieval
-  portal.py             timetable and profile parsers
-  document.py           document generation and PDF export
-  field_help.py         bilingual field descriptions
-  photo.py              photo import
-  branding.py           application icon
-  templates/            shared HTML/CSS and layout logic
-  assets/               icons, Chinese font and font licence
-build/
-  check_environment.py  dependency, asset and browser checks
-  export_source.py      portable source archive
-  generate_icons.py     regenerate PNG/ICO from SVG
-  hooks/                packaging hooks
-  windows/              Windows build recipe and requirements
-  macos/                macOS build recipe and requirements
-tests/                  automated checks and sample generators
-poc/                    earlier portal experiments
-reference/latex/        unused LaTeX draft
-```
+## Create an attendance book
 
-Playwright opens a separate installed-browser login window. Subsequent retrieval uses
-HTTP requests in that browser session. The application requests each selected
-teaching week sequentially.
+1. Configure and select a profile in **Browser Settings**.
+2. Click **Open browser / log in**. Have the student complete the university
+   sign-in and enter the graduate portal. Keep that browser window open during
+   retrieval.
+3. Select the academic start year, semester and inclusive teaching-week range.
+   For 2026–2027, enter **2026**. Weeks run from 1 to 20; the default is 1–18.
+   Semester choices map to the portal automatically.
+4. Retrieve student number/major, student name and weekly timetables using their
+   separate controls. Inspect the result statuses before continuing.
+5. Confirm the Chinese name, passport name, cover major, 班主任, contact number and
+   issue date. The portal's generic 姓名 field does not determine whether a name
+   is Chinese or a passport name.
+6. Add a photograph from a file, by dragging a local image into the photo popup,
+   or by using **Copy image** in the browser and pasting into the active popup
+   with Ctrl+V / Command+V. Copying an image address is not supported.
+7. Click **Create PDF** and choose a destination. The suggested filename is
+   `<student_id>_长安大学国际学生考勤册.pdf`. Alternatively, choose
+   **Open in default browser / print…** to save an HTML preview and print it
+   yourself. This explicit preview action uses the system's default browser.
+8. Click **End student session** before working with another student.
 
-PDFs are rendered from the shared HTML/CSS blueprint using the installed browser
-in headless mode. No LaTeX engine is used. Output is A4 landscape with embedded
-Chinese typography; browser previews fit within 80% of the viewport width.
-Oversized pages are reported instead of silently clipping course text.
+Empty weeks are valid. **Omit empty weeks / 省略无课周** is on by default and
+affects the document and summary only: every selected week is still retrieved
+and validated, and retained weeks keep their original numbers. Changing the
+academic year or semester clears retrieved results; changing the range clears
+timetables. The issue date defaults to today and prints as year/month on the cover.
 
-## Building
+## How it works
 
-Build on the target operating system. The Windows script prepares its own
-environment automatically; macOS uses the setup step above. Build recipes check
-dependencies, assets and browser availability before packaging.
-Platform environments, generated specs, work directories, reports and packaged
-outputs stay under `build/windows/` or `build/macos/`.
+Selenium controls the chosen installed browser while the student signs in
+manually. Retrieval runs same-origin `fetch()` calls inside the logged-in portal
+tab, so requests use the browser's authenticated session. The browser stays open;
+selected weeks are requested sequentially. Existing HTML parsers verify the
+student identity and returned academic year, semester and week. A login page,
+unexpected response or incomplete scan is not accepted as an empty timetable.
 
-### Windows: single EXE
+The authoritative document layout is
+[HTML/CSS](app/templates/attendance_blueprint.html), with shared
+[layout logic](app/templates/layout.js) and the bundled Chinese font. Selenium
+prints the same layout using the selected browser's supported PDF mechanism.
+Output is A4 landscape, with oversized content reported rather than silently
+clipped. There is no LaTeX rendering step or Playwright/Node.js runtime.
+
+Core code: [interface](app/main.py), [browser profiles](app/browser_config.py),
+[portal session](app/service.py), [HTML parsers](app/portal.py) and
+[document generation](app/document.py). Build resources live under [build](build);
+the old [LaTeX draft](reference/latex) is retained only as a reference.
+
+## Build and GitHub releases
+
+Build on the target operating system with Python 3.12 and Tkinter. On Windows,
+prepare the dependencies once, then package the executable:
 
 ```powershell
-.\build\windows\build_windows.ps1 -CheckOnly
+.\build\windows\build_windows.ps1 -Prepare -DownloadsReady
 .\build\windows\build_windows.ps1
 ```
 
-Output: `build/windows/dist/AttendanceBook.exe`.
+Output: `build/windows/dist/AttendanceBook.exe`. See the
+[Windows build guide](build/windows/README.md) for diagnostic options.
 
-The EXE includes Python/Tkinter, Playwright's driver, fonts, icons and native
-drag-and-drop support, but no browser. It defaults to installed Edge. Use
-**Locate browser…** to try an installed Chrome or other Chromium executable
-(such as 360e) without increasing the EXE size. Other Chromium builds are not
-officially validated by Playwright, so test both login and PDF export.
-
-For a console-enabled diagnostic build:
-
-```powershell
-.\build\windows\build_windows.ps1 -ConsoleBuild
-```
-
-Output: `build/windows/dist/AttendanceBookDebug.exe`.
-
-If PowerShell blocks a script, use a process-scoped override with the desired
-arguments:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build\windows\build_windows.ps1 -CheckOnly
-```
-
-### macOS: APP bundle
+macOS has a separate dependency preparation step:
 
 ```sh
-./build/macos/build_macos.command --check
+./build/macos/build_macos.command --prepare --downloads-ready
 ./build/macos/build_macos.command
 ```
 
-Output: `build/macos/dist/AttendanceBook.app`.
+Output: `build/macos/dist/AttendanceBook.app` and an architecture-specific ZIP
+alongside it. See the
+[macOS build guide](build/macos/README.md) for Python selection and distribution.
+Build environments, reports and generated files remain in their platform build
+directories. Packaging does not select the user's runtime browser or bundle one.
 
-Keep the complete APP bundle together. Recipients must have Chrome installed.
-Apple Silicon and Intel require separate builds using the matching Python
-architecture.
+The [GitHub workflow](.github/workflows/build-release.yml) produces Windows x64
+and macOS Apple Silicon packages. Pushes to `main`, pull requests and manual runs
+produce downloadable [Actions artifacts](https://github.com/emirydmr/attendance_sheet/actions).
+Version tags matching `v*` publish a GitHub Release after both builds pass,
+attaching the packages, SHA-256 checksums and build reports. Test the target
+machines before pushing a version tag. Intel Macs require a separate local build
+with an Intel Python installation. No repository secrets are needed; the
+workflow uses GitHub's built-in token.
 
-## GitHub builds and releases
+An optional portable source archive can be generated with
+`python build/export_source.py` using a prepared environment. Its output is
+`build/source/AttendanceBook-source.zip`.
 
-The [build workflow](.github/workflows/build-release.yml) builds the Windows x64
-EXE and macOS Apple Silicon APP on GitHub-hosted runners. Pushes to `main`, pull
-requests and manual runs produce downloadable Actions artifacts. A pushed `v*`
-tag also creates a **draft** GitHub Release with both files. Publish the draft
-after testing it on the teacher's Windows computer. No repository secrets are
-needed for the workflow; it uses GitHub's built-in token.
+## Limitations and troubleshooting
 
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Only tag a commit already pushed to `main`. The macOS release ZIP contains the
-whole `.app`; the Windows release file is the single `.exe`. Browser binaries
-are not included. Hosted-runner checks cover packaging and offline UI/PDF
-components, **not** a real university login or a clean teacher-computer test.
-The macOS build is unsigned and unnotarized. An Intel Mac build is not yet in
-the workflow.
-
-### Optional source archive
-
-Using the prepared platform Python environment, run:
-
-```sh
-python build/export_source.py
-```
-
-Replace `python` with `build/macos/.venv/bin/python` on macOS or
-`build/windows/.venv/Scripts/python.exe` on Windows.
-Output: `build/source/AttendanceBook-source.zip`.
-
-## Troubleshooting
-
-- **Browser check fails:** use **Locate browser…** to select the Edge, Chrome or
-  another Chromium executable. Organization policies may restrict automation.
-  After resolving the problem, click **Check browser / retry**. A failed saved
-  browser selection is reported; the app does not silently fall back to Edge.
-- **Login spins in controlled Edge:** login now uses a temporary regular browser
-  profile rather than an incognito-like context. This specifically tests whether
-  isolated/incognito login storage caused the stall; it has not been confirmed
-  on the teacher's computer. Click **Check login…** to see passive, sanitized
-  browser responses and network errors. Compare the same login in ordinary Edge
-  and manually opened Edge InPrivate on that computer: if InPrivate also stalls,
-  profile/session isolation is suspect; if InPrivate works but the controlled
-  browser stalls, browser automation or organization policy is more likely.
-  Try Chrome or 360e through **Locate browser…** only if installed. Do not send
-  screenshots, traces, HAR files or full login URLs containing session details.
-- **Different browser for an explicit run:** use `--browser msedge` or
-  `--browser chrome`; that browser must already be installed.
-- **Tkinter or drag-and-drop fails:** use Python 3.12 with Tkinter and the correct
-  platform/architecture. Tkinter is not installed through pip.
-- **Login expires or student changes:** end the student session and sign in again.
-- **Cannot paste a photograph:** use **Copy image**, not **Copy image address**,
-  and focus the photo popup before pasting.
-- **PDF overflow:** inspect the page/week identified in the error and adjust the
-  template for the course content.
-- **Wrong timetable:** check the academic start year, semester and teaching-week
-  range. Empty weeks are valid.
-- **Packaged application fails:** use the Windows console build to inspect the
-  error and check the generated platform build report.
-
-## Release status
-
-The GitHub build/release workflow is prepared but has not yet run. Its outputs
-still need testing on clean target machines. Windows Edge behavior on the
-teacher's computer needs diagnosis. Complete live retrieval, native
-clipboard/drag-and-drop and final printed layout need release validation.
-
-Code signing and macOS notarization are not configured.
+- This app depends on Chang'an University's graduate portal HTML and login
+  behavior. A portal change or expired session can require signing in again or
+  updating the parsers. Check the academic selection before retrieving again.
+- If a browser fails, check its executable, driver compatibility and automation
+  policies in Browser Settings. Choose another installed profile explicitly if
+  needed. Custom Chromium/360e builds remain experimental.
+- Firefox PDF support depends on the installed browser/driver. Safari requires
+  HTML/manual printing. The app never silently chooses another browser for PDF.
+- Hosted build checks do not establish successful student login, complete live
+  retrieval or operation on the teacher's Windows computer. Clean-machine
+  validation, native clipboard/drop behavior and final printed layout still need
+  checking before distribution; signing and notarization are not configured.
+- For PDF overflow, inspect the reported page/week and its course content. For
+  packaging errors, inspect the platform build report or use the Windows console
+  build described in its guide.
 
 ## Licensing
 
-The application does not yet declare a source-code licence.
-
-The bundled Noto Serif SC font uses SIL Open Font License 1.1. Its licence and
-provenance are included under [app/assets/fonts](app/assets/fonts) and are
-available through **Font licence / 字体许可** in the application.
+The application does not yet declare a source-code licence. The bundled Noto
+Serif SC font uses SIL Open Font License 1.1; its licence and provenance are in
+[app/assets/fonts](app/assets/fonts) and available through **Font licence / 字体许可**
+in the app.
 
 ## Author
 

@@ -1,43 +1,69 @@
 # Windows build
 
-Build on Windows with Python 3.12 including Tk and the Python launcher (`py`).
-Copy the project source/assets, not a macOS virtual environment, to Windows.
-Run this from the project's root in PowerShell:
+Build on Windows x64 with Python 3.12, Tkinter and the Python launcher (`py`).
+Copy the project source and assets to Windows, including the bundled font;
+virtual environments from macOS cannot be reused. From the repository root in
+PowerShell:
 
 ```powershell
+.\build\windows\build_windows.ps1 -Prepare -DownloadsReady
 .\build\windows\build_windows.ps1
 ```
 
-The script creates `build\windows\.venv` if necessary, installs the pinned Python
-dependencies, verifies the assets and browser, runs the tests, and packages the EXE.
-Existing environments are reused. Microsoft Edge is required but is not bundled;
-if the browser preflight cannot launch it, a file picker lets you select its
-executable. No separate preparation command is needed.
-GitHub Actions uses `-NoBrowserPrompt` so a failed browser check fails the job
-instead of waiting for a file picker or Enter key.
+The preparation command creates `build\windows\.venv` and installs the pinned
+dependencies. `-DownloadsReady` explicitly allows those downloads. The build
+command then checks the required resources, runs the repository checks and
+packages a single executable without inspecting an installed browser by default.
+Existing build environments are reused. Preparation needs network access;
+packaging does not download dependencies or browsers. The packaged app includes
+Python/Tkinter, Selenium, fonts, templates, icons and drag-and-drop support,
+without a Playwright or Node.js runtime.
 
-Output: `build\windows\dist\AttendanceBook.exe`. Generated spec files,
-work files, build reports and the virtual environment remain under
-`build\windows\`.
+Output: `build\windows\dist\AttendanceBook.exe`. Generated specifications, work
+files and reports remain under `build\windows\`.
 
-Optional commands:
+## Build options
 
 ```powershell
 .\build\windows\build_windows.ps1 -CheckOnly
 .\build\windows\build_windows.ps1 -ConsoleBuild
 ```
 
-`-CheckOnly` prepares the environment and runs the preflight without packaging;
-`-ConsoleBuild` produces `AttendanceBookDebug.exe` with console output.
+After preparation, `-CheckOnly` runs preflight without packaging or downloading.
+`-ConsoleBuild` produces `build\windows\dist\AttendanceBookDebug.exe` with console
+output. CI uses `-NonInteractive` so failures do not wait for Enter.
 
-Test the EXE on a clean Windows machine with Edge installed, including login,
-clipboard/drop, offline PDF creation, Chinese text, icon display and
-next-student session cleanup.
-
-If PowerShell blocks the script, use a process-scoped override:
+If PowerShell blocks the script, allow this invocation only:
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build\windows\build_windows.ps1 -Prepare -DownloadsReady
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build\windows\build_windows.ps1
 ```
 
 This does not change the machine-wide execution policy.
+
+## Run and distribute
+
+Recipients need an installed browser, but no separate Python installation or
+administrator installation for normal app use. **Browser Settings** opens
+automatically when no profile is active. Create a named profile and select an
+installed browser; the app detects its executable and chooses the driver kind.
+Click **Apply** to explicitly allow matching-driver acquisition when needed.
+Configuration and drivers live in `%LOCALAPPDATA%\AttendanceBook`, outside the
+EXE. Advanced manual
+overrides and the driver library are in the same dialog. Builds do not assign a
+runtime browser default; a failed selection never launches another browser.
+
+Chrome and Edge support automatic PDF export; Firefox uses WebDriver printing
+when available. Chromium/360e/custom builds require compatible drivers and are
+experimental. Neither packaging nor first-run setup downloads a full browser.
+
+Before distribution, check the EXE on a clean target machine: student-present
+manual login, full timetable retrieval, Chinese PDF output, photo clipboard/drop
+and next-student session cleanup. Windows/teacher-computer live validation has
+not been established by the build checks.
+
+The [GitHub workflow](../../.github/workflows/build-release.yml) produces the
+Windows x64 artifact on `main`, pull requests and manual runs; version tags also
+attach it to a GitHub Release. See the [repository README](../../README.md) for
+release status, usage and browser limitations.
