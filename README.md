@@ -130,7 +130,7 @@ selected weeks are requested sequentially. Existing HTML parsers verify the
 student identity and returned academic year, semester and week. A login page,
 unexpected response or incomplete scan is not accepted as an empty timetable.
 
-The authoritative document layout is
+The sole maintained document layout is
 [HTML/CSS](app/templates/attendance_blueprint.html), with shared
 [layout logic](app/templates/layout.js) and the bundled Chinese font. Selenium
 prints the same layout using the selected browser's supported PDF mechanism.
@@ -140,7 +140,7 @@ clipped. There is no LaTeX rendering step or Playwright/Node.js runtime.
 Core code: [interface](app/main.py), [browser profiles](app/browser_config.py),
 [portal session](app/service.py), [HTML parsers](app/portal.py) and
 [document generation](app/document.py). Build resources live under [build](build);
-the old [LaTeX draft](reference/latex) is retained only as a reference.
+the older LaTeX draft has been retired.
 
 ## Build and GitHub releases
 
@@ -171,15 +171,37 @@ directories. Packaging does not select the user's runtime browser or bundle one.
 The [GitHub workflow](.github/workflows/build-release.yml) produces Windows x64
 and macOS Apple Silicon packages. Pushes to `main`, pull requests and manual runs
 produce downloadable [Actions artifacts](https://github.com/emirydmr/attendance_sheet/actions).
-Version tags matching `v*` publish a GitHub Release after both builds pass,
-attaching the packages, SHA-256 checksums and build reports. Test the target
-machines before pushing a version tag. Intel Macs require a separate local build
+Pushing a version tag matching `v*` automatically publishes a GitHub Release
+after both builds pass, attaching the packages, SHA-256 checksums and build
+reports. Test the target machines before pushing a version tag. Intel Macs
+require a separate local build
 with an Intel Python installation. No repository secrets are needed; the
 workflow uses GitHub's built-in token.
+
+CI runs a local browser, cookie and PDF smoke check against loopback fixtures;
+it does not sign in to the university portal. For an opt-in, student-present
+check on a target machine, use a saved browser profile ID from the app's
+`browser_profiles.json` (Safari is excluded because it cannot use the isolated
+temporary profile required by this check) and run:
+
+```sh
+python tests/live_portal_smoke.py --run-live --profile-id PROFILE_ID --year 2026 --term 11 --week 1
+```
+
+The script requires an interactive confirmation, opens a fresh temporary
+browser, waits for manual sign-in, checks one timetable and the known profile
+page, then closes the session. It prints only pass/fail status, not student
+details. It never runs as part of CI or the default unit tests.
+
+### Optional developer helpers
 
 An optional portable source archive can be generated with
 `python build/export_source.py` using a prepared environment. Its output is
 `build/source/AttendanceBook-source.zip`.
+The icon generator (`build/generate_icons.py`) and layout/omission QA scripts
+(`tests/check_layout.py`, `tests/check_omit_empty.py`) are development tools,
+not alternative release builders. They use an explicitly configured local
+browser and do not download one.
 
 ## Limitations and troubleshooting
 

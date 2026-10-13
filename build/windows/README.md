@@ -22,7 +22,7 @@ without a Playwright or Node.js runtime.
 Output: `build\windows\dist\AttendanceBook.exe`. Generated specifications, work
 files and reports remain under `build\windows\`.
 
-## Build options
+## Optional build diagnostics
 
 ```powershell
 .\build\windows\build_windows.ps1 -CheckOnly
@@ -32,6 +32,12 @@ files and reports remain under `build\windows\`.
 After preparation, `-CheckOnly` runs preflight without packaging or downloading.
 `-ConsoleBuild` produces `build\windows\dist\AttendanceBookDebug.exe` with console
 output. CI uses `-NonInteractive` so failures do not wait for Enter.
+
+CI also runs a local browser and PDF smoke check using loopback fixtures; it
+does not access the university portal. A live portal smoke check is opt-in,
+requires a student-present session on the target machine, and is separate from
+the package build. See the [repository README](../../README.md) for the
+developer-only command and safeguards.
 
 If PowerShell blocks the script, allow this invocation only:
 
@@ -64,6 +70,7 @@ and next-student session cleanup. Windows/teacher-computer live validation has
 not been established by the build checks.
 
 The [GitHub workflow](../../.github/workflows/build-release.yml) produces the
-Windows x64 artifact on `main`, pull requests and manual runs; version tags also
-attach it to a GitHub Release. See the [repository README](../../README.md) for
-release status, usage and browser limitations.
+Windows x64 artifact on `main`, pull requests and manual runs; pushing a `v*`
+version tag automatically publishes a GitHub Release after both platform builds
+pass. See the [repository README](../../README.md) for release status, usage and
+browser limitations.
