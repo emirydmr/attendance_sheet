@@ -22,6 +22,9 @@ def fake_selenium():
     webdriver = ModuleType("selenium.webdriver")
     selenium.webdriver = webdriver
     modules.update({"selenium": selenium, "selenium.webdriver": webdriver})
+    exceptions = ModuleType("selenium.common.exceptions")
+    exceptions.SessionNotCreatedException = type("SessionNotCreatedException", (Exception,), {})
+    modules[exceptions.__name__] = exceptions
 
     class Options:
         def __init__(self):
@@ -223,7 +226,8 @@ class BrowserConfigTests(unittest.TestCase):
         with patch.object(bc, "_driver_details", return_value="150.0.7777.2"):
             imported = bc.import_driver(self.driver, "chromedriver")
         self.assertEqual(Path(imported).read_bytes(), b"fixture")
-        self.assertIn("/drivers/chromedriver/150.0.7777.2/", imported)
+        self.assertEqual(Path(imported).parts[-4:-1],
+                         ("drivers", "chromedriver", "150.0.7777.2"))
         with patch.object(bc, "_run") as run, patch.object(bc.Path, "home", return_value=self.root):
             rows = bc.driver_library()
         self.assertEqual({row["kind"] for row in rows if not row["installed"]}, set(bc.DRIVER_NAMES))
@@ -343,6 +347,21 @@ class BrowserConfigTests(unittest.TestCase):
         self.assertNotIn("SECRET", str(error.exception))
         webdriver.Edge.assert_not_called()
         webdriver.Firefox.assert_not_called()
+
+    def test_safari_automation_permission_error_is_actionable(self):
+        modules, webdriver = fake_selenium()
+        error_type = modules["selenium.common.exceptions"].SessionNotCreatedException
+        webdriver.Safari.side_effect = error_type(
+            "Could not create a session: You must enable 'Allow remote automation' "
+            "in the Developer section of Safari Settings; private detail"
+        )
+        profile = {**self.profile, "browser": "safari", "driver_kind": "safaridriver",
+                   "driver_path": str(self.driver)}
+        with patch.dict(sys.modules, modules), patch.object(bc, "resolve_profile", return_value=profile):
+            with self.assertRaises(ValueError) as error:
+                bc.launch_browser(profile)
+        self.assertIn("Allow remote automation", str(error.exception))
+        self.assertNotIn("private detail", str(error.exception))
 
     def test_script_timeout_failure_closes_created_driver(self):
         modules, webdriver = fake_selenium()

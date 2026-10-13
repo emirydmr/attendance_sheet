@@ -61,7 +61,7 @@ administrator installation. A build does not assign a runtime browser default,
 and a failed browser/driver never causes a switch to another browser.
 
 Chrome and Edge support headless PDF export. Firefox uses WebDriver `print_page`
-when available. Safari requires enabling WebDriver/remote automation first
+when available. Safari requires **Safari → Settings → Developer → Allow remote automation** first
 (one-time system setup may need administrator approval) and supports login with
 HTML preview/manual printing, not unattended PDF export. Custom Chromium/360e
 builds need compatible drivers and remain experimental. Driver acquisition

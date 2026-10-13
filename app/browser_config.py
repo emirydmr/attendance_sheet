@@ -506,6 +506,7 @@ def launch_browser(profile, headless=False, profile_dir=None):
         raise ValueError("Safari does not support headless mode / Safari 不支持无头模式。")
     try:
         from selenium import webdriver
+        from selenium.common.exceptions import SessionNotCreatedException
         if kind == "safaridriver":
             from selenium.webdriver.safari.options import Options
             from selenium.webdriver.safari.service import Service
@@ -552,5 +553,13 @@ def launch_browser(profile, headless=False, profile_dir=None):
         return driver
     except ImportError:
         raise ValueError("Selenium 4 is required / 需要安装 Selenium 4。") from None
+    except SessionNotCreatedException as exc:
+        if kind == "safaridriver" and "allow remote automation" in str(exc).lower():
+            raise ValueError(
+                "Safari requires remote automation. Enable Safari → Settings → Developer → "
+                "Allow remote automation, then retry / Safari 需要远程自动化。请在 Safari → 设置 → "
+                "开发者 中启用‘允许远程自动化’，然后重试。"
+            ) from None
+        raise ValueError("Could not launch the selected browser. Check its driver and automation permissions / 无法启动所选浏览器，请检查驱动与自动化权限。") from None
     except Exception:
         raise ValueError("Could not launch the selected browser. Check its driver and automation permissions / 无法启动所选浏览器，请检查驱动与自动化权限。") from None

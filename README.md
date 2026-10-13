@@ -75,8 +75,9 @@ installations, with download/import options for setup or manual use.
 | Safari (macOS) | Built-in SafariDriver | HTML preview and manual printing; no unattended PDF export |
 | Chromium, 360e or another custom build | Compatible driver required | Experimental; login and PDF compatibility are not guaranteed |
 
-Safari requires enabling WebDriver/remote automation on the Mac before use;
-its one-time system setup may require administrator approval. Driver downloads
+For Safari, enable **Safari → Settings → Developer → Allow remote automation**
+before use; the Developer menu may first need enabling in Safari settings.
+Its one-time system setup may require administrator approval. Driver downloads
 require network access. For offline or restricted machines, import a compatible
 driver manually. A browser update may require a new matching driver.
 
