@@ -286,9 +286,9 @@ class BrowserSettingsDialog(tk.Toplevel):
         ttk.Label(
             parent,
             text=self._text(
-                "Cached and system drivers. Select an installed row to use it. Download for profile "
-                "gets the driver matching the browser executable in Profiles.",
-                "缓存及系统驱动。选择已安装项即可使用；“为当前配置下载”会获取与“配置”页所选浏览器程序匹配的驱动。",
+                "Cached and system drivers. Select an installed row to use it. "
+                "To download a matching driver, use the button in Profiles.",
+                "缓存及系统驱动。选择已安装项即可使用；如需下载匹配驱动，请使用“配置”页中的按钮。",
             ),
             wraplength=700,
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -324,11 +324,6 @@ class BrowserSettingsDialog(tk.Toplevel):
             ttk.Button(actions, text=self._text("Import driver…", "导入驱动…"), command=self._import)
         )
         self._import_button.pack(side="left")
-        self._library_download_button = self._track_widget(
-            ttk.Button(actions, text=self._text("Download for profile", "为当前配置下载"),
-                       command=self._download_for_profile)
-        )
-        self._library_download_button.pack(side="left", padx=6)
 
     # ---- Editor state -------------------------------------------------
 
@@ -716,18 +711,6 @@ class BrowserSettingsDialog(tk.Toplevel):
             stale_sensitive=True,
             status=self._text("Downloading the matching driver…", "正在下载匹配的驱动…"),
         )
-
-    def _download_for_profile(self):
-        selected = self.driver_list.selection()
-        if selected:
-            row = self._driver_rows.get(selected[0], {})
-            if row.get("kind") != self._vars["driver_kind"].get():
-                self._show_error(ValueError(self._text(
-                    "Choose a profile whose browser uses the selected driver first.",
-                    "请先选择使用此驱动的浏览器配置。",
-                )))
-                return
-        self._download()
 
     def _import(self):
         kind = self._vars["driver_kind"].get().strip()

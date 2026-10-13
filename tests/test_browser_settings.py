@@ -167,19 +167,6 @@ class BrowserSettingsControllerTests(unittest.TestCase):
         self.assertEqual(resolve.call_args.args[0]["driver_path"], "")
         self.assertEqual(dialog._vars["driver_mode"].get(), "manual")
 
-    def test_library_download_requires_profile_paired_with_selected_driver(self):
-        dialog = make_dialog(str(self.executable))
-        dialog.driver_list = Mock()
-        dialog.driver_list.selection.return_value = ("row",)
-        dialog._driver_rows = {"row": {"kind": "geckodriver"}}
-        dialog._download = Mock()
-        dialog._download_for_profile()
-        dialog._download.assert_not_called()
-        dialog._show_error.assert_called_once()
-        dialog._driver_rows["row"]["kind"] = "chromedriver"
-        dialog._download_for_profile()
-        dialog._download.assert_called_once_with()
-
     def test_stale_download_result_cannot_replace_editor(self):
         dialog = make_dialog(str(self.executable))
         dialog._operation = 9
@@ -415,8 +402,9 @@ class BrowserSettingsTkTests(unittest.TestCase):
                                 notebook.select(tab)
                                 root.update()
                                 self._assert_children_fit(dialog)
-                                action = dialog._apply_button if tab == 0 else dialog._library_download_button
+                                action = dialog._download_button if tab == 0 else dialog._import_button
                                 self.assertTrue(action.winfo_viewable())
+                            self.assertFalse(hasattr(dialog, "_library_download_button"))
                         dialog.window.lift()
                     finally:
                         dialog.window.destroy()
